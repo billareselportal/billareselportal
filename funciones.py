@@ -1,7 +1,7 @@
 import sqlite3
 
 # ✅ Ruta absoluta de la base de datos
-DB_PATH = r"C:\Users\Usuario\OneDrive\SISTEMA PORTAL\portal.db"
+DB_PATH = r"C:\proyectos terminados\SISTEMA PORTAL\portal.db"
 
 def conectar_db():
     print(f"📌 Conectando a la base de datos: {DB_PATH}")  # Imprimir la ruta

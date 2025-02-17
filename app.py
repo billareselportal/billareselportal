@@ -4,8 +4,7 @@ from flask import Flask, request, jsonify, render_template
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
 # ✅ Ruta absoluta de la base de datos
-DB_PATH = r"C:\Users\Usuario\Desktop\SISTEMA PORTAL\portal.db"
-
+DB_PATH = r"C:\proyectos terminados\SISTEMA PORTAL\portal.db"
 def connect_db():
     print(f"📌 Conectando a la base de datos: {DB_PATH}")  # Imprimir la ruta
     conn = sqlite3.connect(DB_PATH)
