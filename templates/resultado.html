@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalle de la Factura</title>
+    <style>
+        /* ------------------------------
+           ESTILOS GENERALES
+           ------------------------------ */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        /* ------------------------------
+           CONTENEDOR PRINCIPAL
+           ------------------------------ */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            overflow: hidden; /* para recortar esquinas redondeadas en secciones internas */
+        }
+
+        /* ------------------------------
+           CABECERA
+           ------------------------------ */
+        .header {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            margin: 0;
+        }
+
+        /* ------------------------------
+           CONTENIDO
+           ------------------------------ */
+        .content {
+            padding: 20px;
+        }
+
+        .mensaje {
+            color: red;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        /* ------------------------------
+           DATOS FACTURA
+           ------------------------------ */
+        .data-container {
+            margin-bottom: 20px;
+        }
+        .data-container p {
+            margin: 6px 0;
+            font-size: 1rem;
+        }
+        .highlight {
+            font-weight: bold;
+            color: #555;
+        }
+
+        /* ------------------------------
+           SECCIÓN DE TOTALES DESTACADA
+           ------------------------------ */
+        .totals-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+        .total-box {
+            flex: 1;
+            background: #f8f9fc;
+            border-radius: 8px;
+            text-align: center;
+            padding: 15px 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .total-box .label {
+            display: block;
+            font-weight: 600;
+            font-size: 1rem;
+            color: #666;
+        }
+        .total-box .amount {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #007bff;
+            margin-top: 5px;
+        }
+
+        /* ------------------------------
+           TABLA DETALLE DE PRODUCTOS
+           ------------------------------ */
+        .table-section h3 {
+            margin: 15px 0 10px 0;
+            font-size: 1.1rem;
+            color: #007bff;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+        }
+
+        table thead {
+            background: #007bff;
+            color: #fff;
+        }
+
+        th, td {
+            padding: 12px;
+            border: 1px solid #ddd;
+            font-size: 0.95rem;
+        }
+
+        /* Efecto hover en las filas */
+        tbody tr:hover {
+            background-color: #f3f5f7;
+        }
+
+        /* ------------------------------
+           PAGOS RECIBIDOS
+           ------------------------------ */
+        .pagos-section {
+            margin-top: 20px;
+        }
+        .pagos-section h3 {
+            font-size: 1.1rem;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+        .pagos-section ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .pagos-section li {
+            margin: 6px 0;
+            font-size: 0.95rem;
+        }
+        .pagos-section strong {
+            color: #555;
+        }
+
+        /* ------------------------------
+           BOTÓN VOLVER
+           ------------------------------ */
+        .back-button {
+            display: inline-block;
+            margin-top: 20px;
+            background-color: #007bff;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            transition: background-color 0.3s;
+        }
+        .back-button:hover {
+            background-color: #0056b3;
+        }
+
+        /* ------------------------------
+           RESPONSIVE
+           ------------------------------ */
+        @media (max-width: 600px) {
+            .totals-section {
+                flex-direction: column;
+            }
+            .total-box {
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Encabezado de la página -->
+    <div class="header">
+        <h1>Detalle de la Factura</h1>
+    </div>
+
+    <div class="content">
+        {% if mensaje %}
+            <p class="mensaje">{{ mensaje }}</p>
+        {% else %}
+            <!-- DATOS GENERALES DE LA FACTURA -->
+            <div class="data-container">
+                <p><span class="highlight">Factura No:</span> {{ datos_venta[0] }}</p>
+                <p><span class="highlight">Cliente:</span> {{ datos_venta[1] }}</p>
+                <p><span class="highlight">Estado:</span> {{ datos_venta[2] }}</p>
+                <p><span class="highlight">Fecha:</span> {{ datos_venta[11] }}</p>
+                <p><span class="highlight">Concepto:</span> {{ datos_venta[12] }}</p>
+            </div>
+
+            <!-- SECCIÓN DESTACADA PARA TOTAL Y SALDO PENDIENTE (SIN DECIMALES) -->
+            <div class="totals-section">
+                <div class="total-box">
+                    <span class="label">Total</span>
+                    <!-- Usar filtro int o round(0) para eliminar decimales -->
+                    <span class="amount">${{ datos_venta[3]|int }}</span>
+                </div>
+                <div class="total-box">
+                    <span class="label">Saldo Pendiente</span>
+                    <span class="amount">${{ datos_venta[4]|int }}</span>
+                </div>
+            </div>
+
+            <!-- DETALLE DE PRODUCTOS -->
+            <div class="table-section">
+                <h3>Detalle de Productos</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descripción</th>
+                            <th>Cantidad</th>
+                            <th>Precio Unitario</th>
+                            <th>Precio Total</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in detalle_eventos %}
+                        <tr>
+                            <td>{{ item[0] }}</td>
+                            <td>{{ item[1] }}</td>
+                            <td>${{ item[2] / item[1] }}</td>
+                            <td>${{ item[2] }}</td>
+                            <td>{% if item[3] != None %}Pagado{% else %}Pendiente{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- PAGOS RECIBIDOS -->
+            <div class="pagos-section">
+                <h3>Pagos Recibidos</h3>
+                <ul>
+                    <li><strong>Caja (Efectivo):</strong> ${{ datos_venta[5] }}</li>
+                    <li><strong>Nequi:</strong> ${{ datos_venta[6] }}</li>
+                    <li><strong>Bancolombia:</strong> ${{ datos_venta[7] }}</li>
+                    <li><strong>Datafono:</strong> ${{ datos_venta[8] }}</li>
+                    <li><strong>Julian:</strong> ${{ datos_venta[9] }}</li>
+                    <li><strong>Fiado:</strong> ${{ datos_venta[10] }}</li>
+                </ul>
+            </div>
+        {% endif %}
+
+        <a class="back-button" href="/">Volver</a>
+    </div>
+</div>
+
+</body>
+</html>
