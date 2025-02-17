@@ -1,41 +1,41 @@
-import sqlite3
+import psycopg2
 
-# ✅ Ruta absoluta de la base de datos
-DB_PATH = r"C:\proyectos terminados\SISTEMA PORTAL\portal.db"
+# ✅ URL de la base de datos PostgreSQL en Render
+DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
 
 def conectar_db():
-    print(f"📌 Conectando a la base de datos: {DB_PATH}")  # Imprimir la ruta
-    conn = sqlite3.connect(DB_PATH)
-    return conn
-
-def buscar_por_codigo(codigo):
-    conn = conectar_db()
-    cursor = conn.cursor()
-
-    # 🔍 Imprimir todas las tablas de la base de datos
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = cursor.fetchall()
-    print(f"🔍 Tablas en la base de datos: {tables}")
-
-    # 🔎 Verificar si la tabla 'mesas' existe
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mesas';")
-    if not cursor.fetchone():
-        print("❌ Error: La tabla 'mesas' no existe en la base de datos.")
+    """Establece conexión con la base de datos PostgreSQL en Render."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"❌ Error conectando a la base de datos: {e}")
         return None
 
-    # 🔍 Imprimir los códigos de la tabla 'mesas'
-    cursor.execute("SELECT codigo FROM mesas;")
-    codigos = cursor.fetchall()
-    print(f"📌 Códigos en la tabla 'mesas': {codigos}")
+def buscar_por_codigo(codigo):
+    """Busca un código en la tabla 'mesas' en PostgreSQL y obtiene la factura asociada."""
+    conn = conectar_db()
+    if not conn:
+        return None  # Si no hay conexión, no hacemos la consulta
 
-    # 🔎 Consultar la tabla 'mesas'
-    cursor.execute("SELECT factura_no, nombre FROM mesas WHERE codigo = ?", (codigo,))
-    resultado = cursor.fetchone()
+    cursor = conn.cursor()
 
-    print(f"🔍 Consulta en funciones.py para código {codigo}: {resultado}")
+    try:
+        # 🔍 Consultar la tabla 'mesas' en PostgreSQL
+        print(f"🟡 Buscando código {codigo} en la tabla 'mesas'...")
+        cursor.execute("SELECT factura_no, nombre FROM mesas WHERE codigo = %s;", (codigo,))
+        resultado = cursor.fetchone()
 
-    conn.close()
-    
-    if resultado:
-        return {"factura": resultado[0], "cliente": resultado[1]}
-    return None
+        if resultado:
+            print(f"✅ Factura encontrada para código {codigo}: {resultado}")
+            return {"factura": resultado[0], "cliente": resultado[1]}
+        else:
+            print(f"❌ No se encontró una factura para el código {codigo}")
+            return None
+
+    except Exception as e:
+        print(f"❌ Error en la consulta SQL: {e}")
+        return None
+
+    finally:
+        conn.close()
