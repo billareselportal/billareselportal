@@ -39,3 +39,46 @@ def buscar_por_codigo(codigo):
 
     finally:
         conn.close()
+
+def obtener_lista_precios():
+    """Imprime las tablas disponibles y luego intenta obtener la lista de productos y precios."""
+    conn = conectar_db()
+    if not conn:
+        print("❌ No se pudo conectar a la base de datos.")
+        return None
+
+    cursor = conn.cursor()
+
+    try:
+        # 🔍 Obtener y mostrar todas las tablas en la base de datos
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public';
+        """)
+        tablas = cursor.fetchall()
+
+        if tablas:
+            for tabla in tablas:
+                print(f"- {tabla[0]}")
+        else:
+            print("❌ No se encontraron tablas en la base de datos.")
+            return None  # No tiene sentido seguir si no hay tablas
+
+        # 🔍 Ahora intentamos obtener la lista de precios
+        cursor.execute("SELECT producto, precio FROM productos;")
+        productos = cursor.fetchall()
+
+        if productos:
+            return productos
+        else:
+            print("❌ No se encontraron productos en la base de datos.")
+            return None
+
+    except Exception as e:
+        print(f"❌ Error en la consulta SQL: {e}")
+        return None
+
+    finally:
+        conn.close()
+

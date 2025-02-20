@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Precios</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: url('/static/fondo.png') no-repeat center center fixed;
+            background-size: cover;
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            width: 50%;
+            margin: 50px auto;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+        h1 {
+            color: #ffcc00;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        th {
+            background-color: #ffcc00;
+            color: black;
+        }
+        tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        /* 🔙 Estilo del botón de volver */
+        .back-button {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            padding: 10px 20px;
+            background-color: #ffcc00;
+            color: black;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            text-decoration: none;
+        }
+        .back-button:hover {
+            background-color: #e6b800;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 🔙 Botón de volver -->
+        <a href="/" class="back-button">⬅ Volver</a>
+
+        <h1>Lista de Precios</h1>
+
+        {% if mensaje %}
+            <p>{{ mensaje }}</p>
+        {% else %}
+            <table>
+                <tr>
+                    <th>Producto</th>
+                    <th>Precio</th>
+                </tr>
+                {% for producto, precio in productos %}
+                <tr>
+                    <td>{{ producto }}</td>
+                    <td>${{ "{:,.0f}".format(precio | int).replace(",", ".") }}</td>  <!-- 🔥 Formato con punto de miles -->
+                </tr>
+                {% endfor %}
+            </table>
+        {% endif %}
+    </div>
+</body>
+</html>

@@ -3,20 +3,115 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/static/estilo.css">
-    <title>Página Principal</title>
+    <title>Billares El Portal Turístico</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: url('/static/fondo.png') no-repeat center center fixed;
+            background-size: cover;
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            width: 40%;
+            margin: 100px auto;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            color: #ffcc00;
+            margin-bottom: 20px;
+        }
+        .search-section {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input {
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            font-size: 16px;
+        }
+        .button {
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: none;
+            background-color: #ffcc00;
+            color: black;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #e6b800;
+        }
+        .suggestion-section {
+            margin-top: 20px;
+        }
+        textarea {
+            width: 90%;
+            height: 80px;
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            font-size: 14px;
+            resize: none;
+        }
+    </style>
 </head>
 <body>
-    <header>
-        <img src="/static/logo.png" alt="Logo del negocio" class="logo">
-        <h1>Bienvenido a Billares El Portal Turistico</h1>
-    </header>
-    <main>
-        <form action="/resultado" method="post">
-            <label for="codigo">Ingrese el Código:</label>
-            <input type="text" id="codigo" name="codigo" required>
-            <button type="submit">Buscar</button>
-        </form>
-    </main>
+    <div class="container">
+        <h1>Bienvenido</h1>
+
+        <!-- Sección de búsqueda con el nuevo botón "Lista de Precios" -->
+        <div class="search-section">
+            <input type="text" id="codigo" placeholder="Ingrese su código">
+            <button class="button" onclick="buscarCodigo()">Buscar</button>
+            <button class="button" onclick="irListaPrecios()">Lista de Precios</button>
+        </div>
+
+        <!-- Sección de sugerencias -->
+        <div class="suggestion-section">
+            <label for="sugerencias">Sugerencias:</label>
+            <textarea id="sugerencias" placeholder="Déjanos tu opinión..."></textarea>
+            <br>
+            <button class="button">Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        function buscarCodigo() {
+            const codigo = document.getElementById("codigo").value;
+            if (!codigo) {
+                alert("Ingrese un código");
+                return;
+            }
+            
+            // Crear un formulario y enviarlo como POST
+            const form = document.createElement("form");
+            form.method = "POST";
+            form.action = "/resultado";
+    
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "codigo";
+            input.value = codigo;
+            
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        function irListaPrecios() {
+            window.location.href = "/lista_precios";  // Redirige a la lista de precios
+        }
+    </script>
+    
 </body>
 </html>
