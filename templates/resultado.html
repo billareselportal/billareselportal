@@ -239,9 +239,15 @@
                             <tr>
                                 <td>{{ item[0] }}</td>
                                 <td>{{ item[1] }}</td>
-                                <td>${{ "{:,.0f}".format(item[2] / max(item[1], 1)).replace(",", ".") }}</td>
+                                <td>${{ "{:,.0f}".format(item[2] / (item[1] if item[1] and item[1] > 0 else 1)).replace(",", ".") }}</td>
                                 <td>${{ "{:,.0f}".format(item[2]).replace(",", ".") }}</td>
-                                <td>{{ item[3] if item[3] else "Pendiente" }}</td>
+                                <td>
+                                    {% if item[3] and item[3] != "" %}
+                                        {{ item[3] }}  <!-- Muestra el método de pago si existe -->
+                                    {% else %}
+                                        Pendiente  <!-- Si está vacío o es None, muestra "Pendiente" -->
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
