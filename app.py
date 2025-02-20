@@ -1,7 +1,7 @@
 import psycopg2
 from flask import Flask, request, jsonify, render_template
 from funciones import buscar_por_codigo
-
+from funciones import obtener_lista_precios
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
 # ✅ URL de conexión a PostgreSQL en Render
@@ -39,7 +39,7 @@ def resultado():
     if not codigo:
         return render_template('resultado.html', mensaje="Debe ingresar un código.")
 
-    conn = connect_db()
+    conn = connect_db()  # Asegurar que se llama correctamente la función
     if not conn:
         return render_template('resultado.html', mensaje="Error de conexión a la base de datos.")
 
@@ -52,41 +52,81 @@ def resultado():
 
     if not factura_result:
         print(f"❌ No se encontró la factura para el código {codigo}")
+        conn.close()
         return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.")
 
-    factura_no = factura_result[0]  
+    factura_no = factura_result[0]
     print(f"✅ Factura encontrada para código {codigo}: {factura_no}")
 
-    # 🔎 Buscar en `ventas` usando `factura_no`
     try:
+        # 🔎 Buscar en `ventas` usando `factura_no`
         cursor.execute("""
-            SELECT factura_no, nombre, estado, total, saldo, "Caja", "nequi", "bancolombia", "datafono", "julian", "fiado", fecha, concepto
+            SELECT factura_no, nombre, estado, 
+                   CAST(total AS FLOAT), CAST(saldo AS FLOAT), 
+                   CAST(caja AS FLOAT), CAST(nequi AS FLOAT), CAST(bancolombia AS FLOAT), 
+                   CAST(datafono AS FLOAT), CAST(julian AS FLOAT), CAST(fiado AS FLOAT), 
+                   fecha, concepto
             FROM ventas
             WHERE factura_no = %s""", (factura_no,))
         venta_result = cursor.fetchone()
 
+        # ✅ Imprimir los valores obtenidos
+        print(f"✅ Datos de ventas encontrados: {venta_result}")
+
         if not venta_result:
             print(f"❌ No hay información de ventas para la factura {factura_no}")
+            conn.close()
             return render_template('resultado.html', mensaje=f"No hay información de ventas para la factura {factura_no}.")
 
+        # Desempaquetar valores asegurando que son del tipo correcto
         factura, nombre, estado, total, saldo, caja, nequi, bancolombia, datafono, julian, fiado, fecha, concepto = venta_result
 
         # 🔎 Buscar en `eventos_inventario` los productos asociados a la factura
         cursor.execute("""
-            SELECT producto, salidas, costo, metodo
+            SELECT producto, 
+                   CAST(salidas AS FLOAT), 
+                   CAST(costo AS FLOAT), 
+                   metodo
             FROM eventos_inventario
             WHERE factura_no = %s""", (factura_no,))
         eventos = cursor.fetchall()
 
+        # ✅ Imprimir los productos sin modificar
+        print(f"📦 Productos en la factura (antes de conversión): {eventos}")
+
+        # 🔥 Convertir `None` en valores seguros y evitar errores en la plantilla HTML
+        eventos_convertidos = [
+            (producto, float(salidas) if salidas is not None else 0.0,
+             float(costo) if costo is not None else 0.0, 
+             metodo if metodo is not None else "pendiente") 
+            for producto, salidas, costo, metodo in eventos
+        ]
+
+        # ✅ Imprimir los productos después de la conversión
+        print(f"📦 Productos en la factura (después de conversión): {eventos_convertidos}")
+
         conn.close()
 
-        return render_template('resultado.html', 
-                               datos_venta=[factura, nombre, estado, total, saldo, caja, nequi, bancolombia, datafono, julian, fiado, fecha, concepto], 
-                               detalle_eventos=eventos)
+        return render_template(
+            'resultado.html',
+            datos_venta=[factura, nombre, estado, total, saldo, caja, nequi, bancolombia, datafono, julian, fiado, fecha, concepto],
+            detalle_eventos=eventos_convertidos
+        )
 
     except Exception as e:
         print(f"❌ Error en la consulta SQL: {e}")
+        conn.close()
         return render_template('resultado.html', mensaje=f"Error al consultar la factura {factura_no}.")
+
+@app.route('/lista_precios')
+def lista_precios():
+    productos = obtener_lista_precios()  # Obtiene los productos y precios
+    
+    if not productos:
+        return render_template('lista_precios.html', mensaje="No se encontraron productos.")
+
+    return render_template('lista_precios.html', productos=productos)
+
 
 if __name__ == '__main__':
     app.run(debug=True)
