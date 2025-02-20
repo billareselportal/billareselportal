@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detalle de la Factura</title>
     <style>
+        /* ------------------------------
+           ESTILOS GENERALES
+           ------------------------------ */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -23,16 +26,22 @@
             text-decoration: none;
         }
 
+        /* ------------------------------
+           CONTENEDOR PRINCIPAL
+           ------------------------------ */
         .container {
-            max-width: 600px;
-            margin: 10vh auto;
-            background: rgba(0, 0, 0, 0.8);
+            max-width: 700px;
+            margin: 50px auto;
+            background: rgba(0, 0, 0, 0.8); /* Fondo con opacidad */
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
             padding: 20px;
             overflow: hidden;
         }
 
+        /* ------------------------------
+           CABECERA
+           ------------------------------ */
         .header {
             background: #ffcc00;
             color: black;
@@ -42,9 +51,13 @@
         }
 
         .header h1 {
-            font-size: 1.6rem;
+            font-size: 1.8rem;
+            margin: 0;
         }
 
+        /* ------------------------------
+           CONTENIDO
+           ------------------------------ */
         .content {
             padding: 20px;
         }
@@ -52,66 +65,64 @@
         .mensaje {
             color: red;
             font-weight: bold;
-            text-align: center;
             margin-bottom: 10px;
-        }
-
-        .data-container {
             text-align: center;
-            margin-bottom: 20px;
         }
 
+        /* ------------------------------
+           DATOS FACTURA
+           ------------------------------ */
+        .data-container {
+            margin-bottom: 20px;
+            text-align: center;
+        }
         .data-container p {
-            margin: 5px 0;
+            margin: 6px 0;
             font-size: 1rem;
         }
-
         .highlight {
             font-weight: bold;
             color: #ffcc00;
         }
 
+        /* ------------------------------
+           SECCIÓN DE TOTALES DESTACADA
+           ------------------------------ */
         .totals-section {
             display: flex;
             justify-content: space-between;
             margin-bottom: 20px;
             gap: 10px;
         }
-
         .total-box {
             flex: 1;
             background: rgba(255, 255, 255, 0.2);
             border-radius: 8px;
             text-align: center;
-            padding: 12px;
+            padding: 15px 10px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-
         .total-box .label {
             display: block;
             font-weight: 600;
             font-size: 1rem;
             color: #ffcc00;
         }
-
         .total-box .amount {
-            font-size: 1.4rem;
+            font-size: 1.6rem;
             font-weight: bold;
             color: white;
+            margin-top: 5px;
         }
 
-        .table-section {
-            text-align: center;
-        }
-
+        /* ------------------------------
+           TABLA DETALLE DE PRODUCTOS
+           ------------------------------ */
         .table-section h3 {
+            margin: 15px 0 10px 0;
             font-size: 1.1rem;
             color: #ffcc00;
-            margin-bottom: 10px;
-        }
-
-        .table-wrapper {
-            overflow-x: auto;
+            text-align: center;
         }
 
         table {
@@ -126,10 +137,10 @@
         }
 
         th, td {
-            padding: 10px;
+            padding: 12px;
             border: 1px solid #ddd;
             text-align: center;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             color: white;
         }
 
@@ -137,26 +148,34 @@
             background-color: rgba(255, 255, 255, 0.2);
         }
 
+        /* ------------------------------
+           PAGOS RECIBIDOS
+           ------------------------------ */
         .pagos-section {
             margin-top: 20px;
             text-align: center;
         }
-
         .pagos-section h3 {
             font-size: 1.1rem;
             color: #ffcc00;
+            margin-bottom: 10px;
         }
-
         .pagos-section ul {
             list-style: none;
             padding-left: 0;
         }
-
         .pagos-section li {
+            margin: 6px 0;
             font-size: 0.95rem;
             color: white;
         }
+        .pagos-section strong {
+            color: #ffcc00;
+        }
 
+        /* ------------------------------
+           BOTÓN VOLVER
+           ------------------------------ */
         .back-button {
             display: block;
             width: 100%;
@@ -170,23 +189,19 @@
             font-weight: bold;
             transition: background-color 0.3s;
         }
-
         .back-button:hover {
             background-color: #e6b800;
         }
 
+        /* ------------------------------
+           RESPONSIVE
+           ------------------------------ */
         @media (max-width: 600px) {
             .totals-section {
                 flex-direction: column;
             }
-            
             .total-box {
                 margin-bottom: 10px;
-            }
-
-            th, td {
-                font-size: 0.85rem;
-                padding: 8px;
             }
         }
     </style>
@@ -194,6 +209,7 @@
 <body>
 
 <div class="container">
+    <!-- Encabezado de la página -->
     <div class="header">
         <h1>Detalle de la Factura</h1>
     </div>
@@ -202,6 +218,7 @@
         {% if mensaje %}
             <p class="mensaje">{{ mensaje }}</p>
         {% else %}
+            <!-- DATOS GENERALES DE LA FACTURA -->
             <div class="data-container">
                 <p><span class="highlight">Factura No:</span> {{ datos_venta[0] }}</p>
                 <p><span class="highlight">Cliente:</span> {{ datos_venta[1] }}</p>
@@ -210,6 +227,7 @@
                 <p><span class="highlight">Concepto:</span> {{ datos_venta[12] }}</p>
             </div>
 
+            <!-- SECCIÓN DESTACADA PARA TOTAL Y SALDO PENDIENTE -->
             <div class="totals-section">
                 <div class="total-box">
                     <span class="label">Total</span>
@@ -221,34 +239,41 @@
                 </div>
             </div>
 
+            <!-- DETALLE DE PRODUCTOS -->
             <div class="table-section">
                 <h3>Detalle de Productos</h3>
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Descripción</th>
-                                <th>Cantidad</th>
-                                <th>Precio Unitario</th>
-                                <th>Precio Total</th>
-                                <th>Estado</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in detalle_eventos %}
-                            <tr>
-                                <td>{{ item[0] }}</td>
-                                <td>{{ item[1] }}</td>
-                                <td>${{ "{:,.0f}".format(item[2] / max(item[1], 1)).replace(",", ".") }}</td>
-                                <td>${{ "{:,.0f}".format(item[2]).replace(",", ".") }}</td>
-                                <td>{{ item[3] if item[3] else "Pendiente" }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descripción</th>
+                            <th>Cantidad</th>
+                            <th>Precio Unitario</th>
+                            <th>Precio Total</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in detalle_eventos %}
+                        <tr>
+                            <td>{{ item[0] }}</td>
+                            <td>{{ item[1] }}</td>
+                            <td>${{ "{:,.0f}".format(item[2] / item[1]).replace(",", ".") }}</td>
+                            <td>${{ "{:,.0f}".format(item[2]).replace(",", ".") }}</td>
+                            <td>
+                                {% if item[3] and item[3] != "" %}
+                                    {{ item[3] }}  <!-- Muestra el método de pago si existe -->
+                                {% else %}
+                                    Pendiente  <!-- Si está vacío o es None, muestra "Pendiente" -->
+                                {% endif %}
+                            </td>
+                            
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
 
+            <!-- PAGOS RECIBIDOS -->
             <div class="pagos-section">
                 <h3>Pagos Recibidos</h3>
                 <ul>
@@ -256,6 +281,7 @@
                     <li><strong>Nequi:</strong> ${{ datos_venta[6] }}</li>
                     <li><strong>Bancolombia:</strong> ${{ datos_venta[7] }}</li>
                     <li><strong>Datafono:</strong> ${{ datos_venta[8] }}</li>
+
                 </ul>
             </div>
         {% endif %}
