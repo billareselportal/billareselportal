@@ -171,14 +171,16 @@ def obtener_inventario():
     limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
     limite_superior = datetime.combine(fecha_fin, hora_final_time)
 
-    # 🔹 Obtener el inventario inicial ANTES del periodo (todo lo que pasó antes de "limite_inferior")
+    limite_inferior_str = limite_inferior.strftime("%Y-%m-%d %H:%M:%S")
+
     cursor.execute("""
         SELECT producto, 
-               COALESCE(SUM(entradas - salidas), 0) 
+            COALESCE(SUM(entradas - salidas), 0) 
         FROM eventos_inventario
         WHERE fecha < %s
         GROUP BY producto;
-    """, (limite_inferior,))
+    """, (limite_inferior_str,))
+
 
     iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}  # Diccionario {producto: inicial_acumulado}
 
