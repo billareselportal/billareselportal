@@ -159,9 +159,10 @@ def obtener_inventario():
             COALESCE(SUM(ei.salidas), 0) AS salidas
         FROM productos p
         LEFT JOIN eventos_inventario ei ON p.producto = ei.producto 
-            AND ei.fecha >= %s
+            AND CAST(ei.fecha AS DATE) >= %s
         GROUP BY p.producto;
     """, (fecha_inicio,))
+
 
     inventario = []
     for row in cursor.fetchall():
