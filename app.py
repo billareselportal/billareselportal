@@ -184,15 +184,15 @@ def obtener_inventario():
 
     iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}  # Diccionario {producto: inicial_acumulado}
 
-    # 🔹 Obtener entradas y salidas dentro del periodo
     cursor.execute("""
         SELECT producto, 
-               COALESCE(SUM(entradas), 0) AS entradas, 
-               COALESCE(SUM(salidas), 0) AS salidas
+            COALESCE(SUM(entradas), 0) AS entradas, 
+            COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        WHERE fecha >= %s AND fecha <= %s
+        WHERE fecha::timestamp >= %s AND fecha::timestamp <= %s
         GROUP BY producto;
     """, (limite_inferior, limite_superior))
+
 
     inventario = []
     for row in cursor.fetchall():
