@@ -20,6 +20,10 @@ def connect_db():
 def index():
     return render_template('index.html')
 
+@app.route('/inventario')
+def inventario():
+    return render_template('inventario.html')
+
 @app.route('/consulta', methods=['GET'])
 def consulta():
     codigo = request.args.get('codigo')
@@ -127,6 +131,55 @@ def lista_precios():
 
     return render_template('lista_precios.html', productos=productos)
 
+@app.route('/api/inventario')
+def obtener_inventario():
+    periodo = request.args.get('periodo', 'dia')
+
+    conn = connect_db()
+    if not conn:
+        return jsonify([])
+
+    cursor = conn.cursor()
+
+    # Definir los límites de fecha según el período
+    if periodo == "dia":
+        cursor.execute("SELECT CURRENT_DATE;")
+    elif periodo == "semana":
+        cursor.execute("SELECT CURRENT_DATE - INTERVAL '6 days';")
+    elif periodo == "mes":
+        cursor.execute("SELECT CURRENT_DATE - INTERVAL '1 month';")
+    
+    fecha_inicio = cursor.fetchone()[0]
+
+    # Consulta para obtener los datos del inventario
+    cursor.execute("""
+        SELECT 
+            p.producto, 
+            COALESCE(SUM(ei.entradas), 0) AS entradas, 
+            COALESCE(SUM(ei.salidas), 0) AS salidas
+        FROM productos p
+        LEFT JOIN eventos_inventario ei ON p.producto = ei.producto 
+            AND ei.fecha >= %s
+        GROUP BY p.producto;
+    """, (fecha_inicio,))
+
+    inventario = []
+    for row in cursor.fetchall():
+        producto, entradas, salidas = row
+        cursor.execute("SELECT inicial FROM productos WHERE producto = %s", (producto,))
+        inicial = cursor.fetchone()[0]
+        final = inicial + entradas - salidas
+
+        inventario.append({
+            "producto": producto,
+            "inicial": inicial,
+            "entradas": entradas,
+            "salidas": salidas,
+            "final": final
+        })
+
+    conn.close()
+    return jsonify(inventario)
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -77,6 +77,25 @@
             resize: none;
         }
 
+        /* 🔽 Estilos para el botón de inventario (más discreto) */
+        .hidden-section {
+            margin-top: 40px;
+            text-align: center;
+        }
+
+        .hidden-button {
+            background-color: rgba(255, 204, 0, 0.8); /* Color más tenue */
+            padding: 8px 15px;
+            font-size: 14px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+        }
+
+        .hidden-button:hover {
+            background-color: #e6b800;
+        }
+
         @media (min-width: 600px) {
             .search-section {
                 flex-direction: row;
@@ -111,6 +130,11 @@
             <br>
             <button class="button">Enviar</button>
         </div>
+
+        <!-- 🔽 Sección más oculta para propietarios -->
+        <div class="hidden-section">
+            <button class="hidden-button" onclick="pedirContrasena()">Ver Inventario</button>
+        </div>
     </div>
 
     <script>
@@ -139,7 +163,17 @@
         function irListaPrecios() {
             window.location.href = "/lista_precios";  // Redirige a la lista de precios
         }
+
+        function pedirContrasena() {
+            let contrasena = prompt("Ingrese la contraseña:");
+            if (contrasena === "181512") {
+                window.location.href = "/inventario";
+            } else {
+                alert("Contraseña incorrecta.");
+            }
+        }
     </script>
     
 </body>
 </html>
+
