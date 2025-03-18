@@ -135,29 +135,38 @@ def lista_precios():
 @app.route('/api/inventario')
 def obtener_inventario():
     periodo = request.args.get('periodo', 'dia')
+    print(f"[DEBUG] Ingresando a /api/inventario con periodo={periodo}")
 
     conn = connect_db()
     if not conn:
+        print("[DEBUG] No se pudo conectar a la DB, devolviendo lista vacía.")
         return jsonify([])
 
     cursor = conn.cursor()
 
-    # Obtener horario (último registro)
+    # 1. Obtener horario
     cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
     horario_result = cursor.fetchone()
+    print(f"[DEBUG] Último horario_result={horario_result}")
 
     if horario_result:
         hora_inicial, hora_final = horario_result
     else:
         hora_inicial, hora_final = "12:00", "12:00"  # Por defecto
+    print(f"[DEBUG] hora_inicial={hora_inicial}, hora_final={hora_final}")
 
     ahora = datetime.now()
+    print(f"[DEBUG] Fecha/hora actual={ahora}")
+
     hora_actual = ahora.time()
+    print(f"[DEBUG] Hora actual={hora_actual}")
 
     # Convertir a objetos de tiempo
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time   = datetime.strptime(hora_final, "%H:%M").time()
+    print(f"[DEBUG] hora_inicial_time={hora_inicial_time}, hora_final_time={hora_final_time}")
 
+    # 2. Calcular fecha_inicio y fecha_fin
     if hora_actual < hora_inicial_time:
         fecha_inicio = (ahora - timedelta(days=1)).date()
     else:
@@ -165,39 +174,51 @@ def obtener_inventario():
 
     fecha_fin = fecha_inicio
 
+    print(f"[DEBUG] fecha_inicio={fecha_inicio}, fecha_fin={fecha_fin}")
+
     limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
     limite_superior = datetime.combine(fecha_fin, hora_final_time)
 
-    # 🔹 Consulta 1: Inventario antes del límite inferior
+    print(f"[DEBUG] limite_inferior={limite_inferior}")
+    print(f"[DEBUG] limite_superior={limite_superior}")
+
+    # 3. Consulta 1: Inventario antes del límite inferior
+    print("[DEBUG] Ejecutando consulta de inventario inicial...")
     cursor.execute(
         """
         SELECT producto, 
                COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha::timestamp < %s  -- CAST EXPLÍCITO
+        WHERE fecha::timestamp < %s
         GROUP BY producto;
         """,
         (limite_inferior,)  # Pasamos un objeto datetime
     )
+    iniciales_rows = cursor.fetchall()
+    print(f"[DEBUG] resultado iniciales_rows (antes de límite)={iniciales_rows}")
 
-    iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}
+    iniciales_dict = {row[0]: row[1] for row in iniciales_rows}
 
-    # 🔹 Consulta 2: Entradas y salidas en el periodo
+    # 4. Consulta 2: Entradas y salidas en el periodo
+    print("[DEBUG] Ejecutando consulta de entradas y salidas en el periodo...")
     cursor.execute(
         """
         SELECT producto,
                COALESCE(SUM(entradas), 0) AS entradas,
                COALESCE(SUM(salidas), 0)  AS salidas
         FROM eventos_inventario
-        WHERE fecha::timestamp >= %s  -- CAST EXPLÍCITO
+        WHERE fecha::timestamp >= %s
           AND fecha::timestamp <= %s
         GROUP BY producto;
         """,
         (limite_inferior, limite_superior)
     )
+    periodo_rows = cursor.fetchall()
+    print(f"[DEBUG] resultado periodo_rows={periodo_rows}")
 
+    # 5. Construir la respuesta
     inventario = []
-    for row in cursor.fetchall():
+    for row in periodo_rows:
         producto, entradas, salidas = row
 
         inicial = iniciales_dict.get(producto, 0)
@@ -211,8 +232,11 @@ def obtener_inventario():
             "final": final
         })
 
+    print(f"[DEBUG] inventario final={inventario}")
+
     conn.close()
     return jsonify(inventario)
+
 
 
 
