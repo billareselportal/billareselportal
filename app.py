@@ -159,9 +159,9 @@ def obtener_inventario():
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
-    # Si la hora actual es antes del horario de inicio, retroceder un día
+    # ✅ CORREGIDO: Usar `timedelta` correctamente
     if hora_actual < hora_inicial_time:
-        fecha_inicio = (ahora - datetime.timedelta(days=1)).date()
+        fecha_inicio = (ahora - timedelta(days=1)).date()
     else:
         fecha_inicio = ahora.date()
 
