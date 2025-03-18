@@ -1,3 +1,4 @@
+import datetime
 import psycopg2
 from flask import Flask, request, jsonify, render_template
 from funciones import buscar_por_codigo
@@ -141,34 +142,64 @@ def obtener_inventario():
 
     cursor = conn.cursor()
 
-    # Definir los límites de fecha según el período
-    if periodo == "dia":
-        cursor.execute("SELECT CURRENT_DATE;")
-    elif periodo == "semana":
-        cursor.execute("SELECT CURRENT_DATE - INTERVAL '6 days';")
-    elif periodo == "mes":
-        cursor.execute("SELECT CURRENT_DATE - INTERVAL '1 month';")
+    # 🔹 Obtener el horario de la tabla horarios (último registro)
+    cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
+    horario_result = cursor.fetchone()
+
+    if horario_result:
+        hora_inicial, hora_final = horario_result
+    else:
+        hora_inicial, hora_final = "12:00", "12:00"  # Valores por defecto
+
+    # 🔹 Determinar la fecha y hora del periodo según la hora actual
+    ahora = datetime.now()
+    hora_actual = ahora.time()
     
-    fecha_inicio = cursor.fetchone()[0]
+    # Convertir a objetos de tiempo
+    hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
+    hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
-    # Consulta para obtener los datos del inventario
+    # Si la hora actual es antes del horario de inicio, retroceder un día
+    if hora_actual < hora_inicial_time:
+        fecha_inicio = (ahora - datetime.timedelta(days=1)).date()
+    else:
+        fecha_inicio = ahora.date()
+
+    fecha_fin = fecha_inicio  # El periodo siempre es hasta el presente
+
+    # Construcción de límites de tiempo
+    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
+    limite_superior = datetime.combine(fecha_fin, hora_final_time)
+
+    # 🔹 Obtener el inventario inicial ANTES del periodo (todo lo que pasó antes de "limite_inferior")
     cursor.execute("""
-        SELECT 
-            p.producto, 
-            COALESCE(SUM(ei.entradas), 0) AS entradas, 
-            COALESCE(SUM(ei.salidas), 0) AS salidas
-        FROM productos p
-        LEFT JOIN eventos_inventario ei ON p.producto = ei.producto 
-            AND CAST(ei.fecha AS DATE) >= %s
-        GROUP BY p.producto;
-    """, (fecha_inicio,))
+        SELECT producto, 
+               COALESCE(SUM(entradas - salidas), 0) 
+        FROM eventos_inventario
+        WHERE fecha < %s
+        GROUP BY producto;
+    """, (limite_inferior,))
 
+    iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}  # Diccionario {producto: inicial_acumulado}
+
+    # 🔹 Obtener entradas y salidas dentro del periodo
+    cursor.execute("""
+        SELECT producto, 
+               COALESCE(SUM(entradas), 0) AS entradas, 
+               COALESCE(SUM(salidas), 0) AS salidas
+        FROM eventos_inventario
+        WHERE fecha >= %s AND fecha <= %s
+        GROUP BY producto;
+    """, (limite_inferior, limite_superior))
 
     inventario = []
     for row in cursor.fetchall():
         producto, entradas, salidas = row
-        cursor.execute("SELECT inicial FROM productos WHERE producto = %s", (producto,))
-        inicial = cursor.fetchone()[0]
+
+        # 🔹 Obtener el inicial acumulado del diccionario
+        inicial = iniciales_dict.get(producto, 0)
+
+        # 🔹 Calcular el final del inventario
         final = inicial + entradas - salidas
 
         inventario.append({
@@ -181,6 +212,8 @@ def obtener_inventario():
 
     conn.close()
     return jsonify(inventario)
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
