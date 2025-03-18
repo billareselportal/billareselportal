@@ -142,66 +142,65 @@ def obtener_inventario():
 
     cursor = conn.cursor()
 
-    # 🔹 Obtener el horario de la tabla horarios (último registro)
+    # Obtener horario (último registro)
     cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
     horario_result = cursor.fetchone()
 
     if horario_result:
         hora_inicial, hora_final = horario_result
     else:
-        hora_inicial, hora_final = "12:00", "12:00"  # Valores por defecto
+        hora_inicial, hora_final = "12:00", "12:00"  # Por defecto
 
-    # 🔹 Determinar la fecha y hora del periodo según la hora actual
     ahora = datetime.now()
     hora_actual = ahora.time()
-    
+
     # Convertir a objetos de tiempo
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
-    hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
+    hora_final_time   = datetime.strptime(hora_final, "%H:%M").time()
 
-    # ✅ CORREGIDO: Usar `timedelta` correctamente
     if hora_actual < hora_inicial_time:
         fecha_inicio = (ahora - timedelta(days=1)).date()
     else:
         fecha_inicio = ahora.date()
 
-    fecha_fin = fecha_inicio  # El periodo siempre es hasta el presente
+    fecha_fin = fecha_inicio
 
-    # Construcción de límites de tiempo
     limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
     limite_superior = datetime.combine(fecha_fin, hora_final_time)
 
-    limite_inferior_str = limite_inferior.strftime("%Y-%m-%d %H:%M:%S")
-
-    cursor.execute("""
+    # 🔹 Consulta 1: Inventario antes del límite inferior
+    cursor.execute(
+        """
         SELECT producto, 
-            COALESCE(SUM(entradas - salidas), 0) 
+               COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha < %s
+        WHERE fecha::timestamp < %s  -- CAST EXPLÍCITO
         GROUP BY producto;
-    """, (limite_inferior_str,))
+        """,
+        (limite_inferior,)  # Pasamos un objeto datetime
+    )
 
+    iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}
 
-    iniciales_dict = {row[0]: row[1] for row in cursor.fetchall()}  # Diccionario {producto: inicial_acumulado}
-
-    cursor.execute("""
-        SELECT producto, 
-            COALESCE(SUM(entradas), 0) AS entradas, 
-            COALESCE(SUM(salidas), 0) AS salidas
+    # 🔹 Consulta 2: Entradas y salidas en el periodo
+    cursor.execute(
+        """
+        SELECT producto,
+               COALESCE(SUM(entradas), 0) AS entradas,
+               COALESCE(SUM(salidas), 0)  AS salidas
         FROM eventos_inventario
-        WHERE fecha::timestamp >= %s AND fecha::timestamp <= %s
+        WHERE fecha::timestamp >= %s  -- CAST EXPLÍCITO
+          AND fecha::timestamp <= %s
         GROUP BY producto;
-    """, (limite_inferior, limite_superior))
-
+        """,
+        (limite_inferior, limite_superior)
+    )
 
     inventario = []
     for row in cursor.fetchall():
         producto, entradas, salidas = row
 
-        # 🔹 Obtener el inicial acumulado del diccionario
         inicial = iniciales_dict.get(producto, 0)
-
-        # 🔹 Calcular el final del inventario
         final = inicial + entradas - salidas
 
         inventario.append({
