@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import psycopg2
 from flask import Flask, request, jsonify, render_template
 from funciones import buscar_por_codigo
