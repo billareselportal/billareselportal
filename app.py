@@ -1,12 +1,17 @@
 from datetime import datetime, timedelta
+import os
 import psycopg2
+import pytz
 from flask import Flask, request, jsonify, render_template
-from funciones import buscar_por_codigo
-from funciones import obtener_lista_precios
-app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
+from funciones import buscar_por_codigo, obtener_lista_precios
+
+app = Flask(__name__, template_folder='templates')
 
 # ✅ URL de conexión a PostgreSQL en Render
 DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
+
+# ✅ Establecer zona horaria
+zona_horaria = pytz.timezone("America/Bogota")
 
 def connect_db():
     """Establece la conexión con la base de datos PostgreSQL en Render."""
@@ -146,66 +151,55 @@ def obtener_inventario():
     # 1️⃣ Obtener horario dinámico
     cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
     horario_result = cursor.fetchone()
-
-    if horario_result:
-        hora_inicial, hora_final = horario_result
-    else:
-        hora_inicial, hora_final = "12:00", "12:00"  # Valores por defecto
+    hora_inicial, hora_final = horario_result if horario_result else ("12:00", "12:00")
 
     print(f"[DEBUG] Horario dinámico: {hora_inicial} - {hora_final}")
 
     # 2️⃣ Calcular el rango de fechas según el período seleccionado
-    ahora = datetime.now()
+    ahora = datetime.now(zona_horaria)
     hora_actual = ahora.time()
 
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
     if periodo == "dia":
-        if hora_actual < hora_inicial_time:
-            fecha_inicio = (ahora - timedelta(days=1)).date()
-        else:
-            fecha_inicio = ahora.date()
-        fecha_fin = fecha_inicio + timedelta(days=1) if hora_final_time <= hora_inicial_time else fecha_inicio
+        fecha_inicio = (ahora - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora.date()
+        fecha_fin = fecha_inicio if hora_final_time > hora_inicial_time else fecha_inicio + timedelta(days=1)
 
     elif periodo == "semana":
         lunes_inicio = ahora - timedelta(days=ahora.weekday())  # Inicio de semana (lunes)
         fecha_inicio = lunes_inicio.date()
-        fecha_fin = fecha_inicio + timedelta(days=7)  # Hasta el siguiente lunes
+        fecha_fin = fecha_inicio + timedelta(days=7)
 
     elif periodo == "mes":
-        fecha_inicio = ahora.replace(day=1).date()  # Primer día del mes
-        fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)  # Primer día del mes siguiente
+        fecha_inicio = ahora.replace(day=1).date()
+        fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
 
     else:
         return jsonify({"error": "Periodo no válido"}), 400
 
-    # Crear los límites de la consulta
-    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
-    limite_superior = datetime.combine(fecha_fin, hora_final_time)
+    # ✅ Crear los límites de la consulta
+    limite_inferior = zona_horaria.localize(datetime.combine(fecha_inicio, hora_inicial_time))
+    limite_superior = zona_horaria.localize(datetime.combine(fecha_fin, hora_final_time))
 
     print(f"[DEBUG] Rango de consulta: {limite_inferior} → {limite_superior}")
 
     # 3️⃣ Obtener todos los productos y sus valores iniciales
-    cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY producto")
+    cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY producto ASC")
     productos_rows = cursor.fetchall()
     inventario = {row[0]: {"producto": row[0], "inicial": float(row[1]), "entradas": 0, "salidas": 0, "final": float(row[1])} for row in productos_rows}
 
     print(f"[DEBUG] Productos obtenidos: {len(inventario)}")
 
     # 4️⃣ Consultar inventario inicial (antes del período seleccionado)
-    cursor.execute(
-        """
+    cursor.execute("""
         SELECT producto, COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha::timestamp < %s
+        WHERE fecha < %s
         GROUP BY producto;
-        """,
-        (limite_inferior,)
-    )
+    """, (limite_inferior,))
     iniciales_rows = cursor.fetchall()
 
-    # Sumar valores iniciales al inventario
     for producto, cantidad in iniciales_rows:
         if producto in inventario:
             inventario[producto]["inicial"] += cantidad
@@ -216,20 +210,14 @@ def obtener_inventario():
     print(f"[DEBUG] Inventario inicial actualizado con eventos_inventario")
 
     # 5️⃣ Consultar movimientos dentro del período
-    cursor.execute(
-        """
-        SELECT producto, 
-               COALESCE(SUM(entradas), 0) AS entradas, 
-               COALESCE(SUM(salidas), 0) AS salidas
+    cursor.execute("""
+        SELECT producto, COALESCE(SUM(entradas), 0), COALESCE(SUM(salidas), 0)
         FROM eventos_inventario
-        WHERE fecha::timestamp >= %s AND fecha::timestamp <= %s
+        WHERE fecha >= %s AND fecha <= %s
         GROUP BY producto;
-        """,
-        (limite_inferior, limite_superior)
-    )
+    """, (limite_inferior, limite_superior))
     periodo_rows = cursor.fetchall()
 
-    # Aplicar los movimientos al inventario
     for producto, entradas, salidas in periodo_rows:
         if producto in inventario:
             inventario[producto]["entradas"] += entradas
@@ -242,9 +230,6 @@ def obtener_inventario():
 
     conn.close()
     return jsonify(list(inventario.values()))  # Convertir el diccionario a lista JSON
-
-
-
 
 
 if __name__ == '__main__':
