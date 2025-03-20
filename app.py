@@ -3,6 +3,7 @@ import psycopg2
 from flask import Flask, request, jsonify, render_template
 from funciones import buscar_por_codigo
 from funciones import obtener_lista_precios
+import pytz
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
 # ✅ URL de conexión a PostgreSQL en Render
@@ -154,13 +155,16 @@ def obtener_inventario():
 
     print(f"[DEBUG] Horario dinámico: {hora_inicial} - {hora_final}")
 
-    # 2️⃣ Calcular el rango de fechas según el período seleccionado
-    ahora = datetime.now()
+    # 2️⃣ Convertir la hora actual a UTC para evitar desfase
+    zona_horaria_utc = pytz.utc
+    ahora = datetime.now(zona_horaria_utc)  # Ahora siempre en UTC
     hora_actual = ahora.time()
 
+    # Convertir horas inicial y final a objetos `time`
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
+    # 3️⃣ Calcular el rango de fechas en UTC
     if periodo == "dia":
         if hora_actual < hora_inicial_time:
             fecha_inicio = (ahora - timedelta(days=1)).date()
@@ -169,7 +173,7 @@ def obtener_inventario():
         fecha_fin = fecha_inicio + timedelta(days=1) if hora_final_time <= hora_inicial_time else fecha_inicio
 
     elif periodo == "semana":
-        lunes_inicio = ahora - timedelta(days=ahora.weekday())  # Inicio de semana (lunes)
+        lunes_inicio = ahora - timedelta(days=ahora.weekday())  # Inicio de la semana (lunes)
         fecha_inicio = lunes_inicio.date()
         fecha_fin = fecha_inicio + timedelta(days=7)  # Hasta el siguiente lunes
 
@@ -180,11 +184,11 @@ def obtener_inventario():
     else:
         return jsonify({"error": "Periodo no válido"}), 400
 
-    # Crear los límites de la consulta
-    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
-    limite_superior = datetime.combine(fecha_fin, hora_final_time)
+    # 4️⃣ Convertir las fechas a UTC antes de la consulta
+    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time).replace(tzinfo=pytz.utc)
+    limite_superior = datetime.combine(fecha_fin, hora_final_time).replace(tzinfo=pytz.utc)
 
-    print(f"[DEBUG] Rango de consulta: {limite_inferior} → {limite_superior}")
+    print(f"[DEBUG] Rango de consulta en UTC: {limite_inferior} → {limite_superior}")
 
     # 3️⃣ Obtener todos los productos y sus valores iniciales
     cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY producto ASC")
@@ -242,9 +246,6 @@ def obtener_inventario():
 
     conn.close()
     return jsonify(list(inventario.values()))  # Convertir el diccionario a lista JSON
-
-
-
 
 
 if __name__ == '__main__':
