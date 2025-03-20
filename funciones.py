@@ -41,7 +41,7 @@ def buscar_por_codigo(codigo):
         conn.close()
 
 def obtener_lista_precios():
-    """Imprime las tablas disponibles y luego intenta obtener la lista de productos y precios."""
+    """Obtiene la lista de productos y precios, asegurando el formato correcto."""
     conn = conectar_db()
     if not conn:
         print("❌ No se pudo conectar a la base de datos.")
@@ -50,7 +50,7 @@ def obtener_lista_precios():
     cursor = conn.cursor()
 
     try:
-        # 🔍 Obtener y mostrar todas las tablas en la base de datos
+        # 🔍 Obtener todas las tablas para verificar la estructura
         cursor.execute("""
             SELECT table_name 
             FROM information_schema.tables 
@@ -59,18 +59,19 @@ def obtener_lista_precios():
         tablas = cursor.fetchall()
 
         if tablas:
+            print("🔹 Tablas en la base de datos:")
             for tabla in tablas:
                 print(f"- {tabla[0]}")
         else:
             print("❌ No se encontraron tablas en la base de datos.")
             return None  # No tiene sentido seguir si no hay tablas
 
-        # 🔍 Ahora intentamos obtener la lista de precios
-        cursor.execute("SELECT id, producto, precio FROM productos ORDER BY id ASC;")
+        # 🔍 Obtener lista de productos con precios ordenados por ID ASC
+        cursor.execute("SELECT producto, precio FROM productos ORDER BY id ASC;")
         productos = cursor.fetchall()
 
         if productos:
-            return productos
+            return [(row[0], row[1]) for row in productos]  # Solo devolver producto y precio
         else:
             print("❌ No se encontraron productos en la base de datos.")
             return None
@@ -81,4 +82,3 @@ def obtener_lista_precios():
 
     finally:
         conn.close()
-

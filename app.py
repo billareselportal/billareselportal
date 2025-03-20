@@ -5,7 +5,6 @@ from funciones import buscar_por_codigo
 from funciones import obtener_lista_precios
 import pytz
 import pandas as pd
-import datetime
 
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
@@ -160,7 +159,7 @@ def obtener_inventario():
 
     # 2️⃣ Convertir la hora actual a UTC para evitar desfase
     zona_horaria_utc = pytz.utc
-    ahora = datetime.now(zona_horaria_utc)  # Ahora siempre en UTC
+    ahora = datetime.utcnow().replace(tzinfo=zona_horaria_utc)  # Se usa `datetime.utcnow()`
     hora_actual = ahora.time()
 
     # Convertir horas inicial y final a objetos `time`
@@ -205,7 +204,7 @@ def obtener_inventario():
         """
         SELECT producto, COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha::timestamp < %s
+        WHERE fecha < %s::timestamp
         GROUP BY producto;
         """,
         (limite_inferior,)
@@ -229,7 +228,7 @@ def obtener_inventario():
                COALESCE(SUM(entradas), 0) AS entradas, 
                COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        WHERE fecha::timestamp >= %s AND fecha::timestamp <= %s
+        WHERE fecha >= %s::timestamp AND fecha <= %s::timestamp
         GROUP BY producto;
         """,
         (limite_inferior, limite_superior)
@@ -249,6 +248,9 @@ def obtener_inventario():
 
     conn.close()
     return jsonify(list(inventario.values()))  # Convertir el diccionario a lista JSON
+
+
+
 @app.route('/api/generar_informe')
 def generar_informe():
     fecha_inicio = request.args.get('fecha_inicio')
