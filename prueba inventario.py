@@ -1,9 +1,37 @@
-from datetime import datetime
-import pytz
+import psycopg2
+import pandas as pd
 
-# Define la zona horaria local, por ejemplo, para Colombia
-zona_horaria_local = pytz.timezone('America/Bogota')
+# Datos de conexión a PostgreSQL
+DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
 
-# Obtén la hora actual en la zona horaria local
-hora_local = datetime.now(zona_horaria_local)
-print("Hora local:", hora_local.strftime("%Y-%m-%d %H:%M:%S %Z%z"))
+# Conectar a PostgreSQL
+try:
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    
+    # Obtener nombres de columnas en la tabla flujo_dinero
+    cursor.execute("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'flujo_dinero';
+    """)
+    columnas = cursor.fetchall()
+    columnas = [col[0] for col in columnas]
+
+    # Obtener contenido de la tabla flujo_dinero
+    cursor.execute("SELECT * FROM flujo_dinero LIMIT 10;")
+    datos = cursor.fetchall()
+
+    # Crear un DataFrame para visualizar mejor
+    df = pd.DataFrame(datos, columns=columnas)
+    
+    # Mostrar el contenido en la consola
+    print("Contenido de la tabla flujo_dinero:")
+    print(df)
+
+    # Cerrar conexión
+    cursor.close()
+    conn.close()
+
+except Exception as e:
+    print(f"Error al conectar o consultar la base de datos: {e}")

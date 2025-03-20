@@ -66,7 +66,7 @@ def obtener_lista_precios():
             return None  # No tiene sentido seguir si no hay tablas
 
         # 🔍 Ahora intentamos obtener la lista de precios
-        cursor.execute("SELECT producto, precio FROM productos;")
+        cursor.execute("SELECT id, producto, precio FROM productos ORDER BY id ASC;")
         productos = cursor.fetchall()
 
         if productos:

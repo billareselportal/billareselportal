@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario</title>
+    <title>Inventario y Finanzas</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -26,10 +26,10 @@
             color: #333;
         }
 
-        select {
-            padding: 10px;
-            margin: 10px;
+        label, input, select, button {
             font-size: 16px;
+            margin: 5px;
+            padding: 5px;
         }
 
         table {
@@ -59,8 +59,6 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
         }
 
         button:hover {
@@ -70,8 +68,25 @@
 </head>
 <body>
     <div class="container">
-        <h1>Inventario</h1>
+        <h1>Inventario y Finanzas</h1>
 
+        <!-- 🔹 Selección del período para el informe -->
+        <label for="fecha_inicio">Fecha Inicio:</label>
+        <input type="date" id="fecha_inicio">
+
+        <label for="fecha_fin">Fecha Fin:</label>
+        <input type="date" id="fecha_fin">
+
+        <label for="id_inicio">ID Inicio:</label>
+        <input type="number" id="id_inicio" min="1">
+
+        <label for="id_fin">ID Fin:</label>
+        <input type="number" id="id_fin" min="1">
+
+        <button onclick="descargarInforme()">Generar Informe</button>
+
+        <!-- 🔹 Tabla de Inventario -->
+        <h2>Inventario</h2>
         <label for="periodo">Seleccionar período:</label>
         <select id="periodo" onchange="actualizarInventario()">
             <option value="dia">Día</option>
@@ -90,6 +105,24 @@
                 </tr>
             </thead>
             <tbody id="inventario-body">
+                <!-- Se llenará dinámicamente con JS -->
+            </tbody>
+        </table>
+
+        <!-- 🔹 Tabla de Finanzas -->
+        <h2>Resumen Financiero</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Cuenta</th>
+                    <th>Inicial</th>
+                    <th>Ingresos</th>
+                    <th>Gastos</th>
+                    <th>Abonos</th>
+                    <th>Saldo Final</th>
+                </tr>
+            </thead>
+            <tbody id="finanzas-body">
                 <!-- Se llenará dinámicamente con JS -->
             </tbody>
         </table>
@@ -120,7 +153,43 @@
                 .catch(error => console.error("Error al cargar el inventario:", error));
         }
 
-        document.addEventListener("DOMContentLoaded", actualizarInventario);
+        function actualizarFinanzas() {
+            fetch(`/api/finanzas`)
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById("finanzas-body");
+                    tbody.innerHTML = ""; // Limpiar tabla antes de insertar nuevos datos
+
+                    data.forEach(row => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `
+                            <td>${row.cuenta}</td>
+                            <td>${row.inicial}</td>
+                            <td>${row.ingresos}</td>
+                            <td>${row.gastos}</td>
+                            <td>${row.abonos}</td>
+                            <td>${row.saldo_final}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(error => console.error("Error al cargar las finanzas:", error));
+        }
+
+        function descargarInforme() {
+            const fechaInicio = document.getElementById("fecha_inicio").value;
+            const fechaFin = document.getElementById("fecha_fin").value;
+            const idInicio = document.getElementById("id_inicio").value;
+            const idFin = document.getElementById("id_fin").value;
+
+            let url = `/api/generar_informe?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&id_inicio=${idInicio}&id_fin=${idFin}`;
+            window.location.href = url;
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            actualizarInventario();
+            actualizarFinanzas();
+        });
     </script>
 </body>
 </html>

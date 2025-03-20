@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta
 import psycopg2
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 from funciones import buscar_por_codigo
 from funciones import obtener_lista_precios
 import pytz
+import pandas as pd
+import datetime
+
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
 # ✅ URL de conexión a PostgreSQL en Render
@@ -246,7 +249,118 @@ def obtener_inventario():
 
     conn.close()
     return jsonify(list(inventario.values()))  # Convertir el diccionario a lista JSON
+@app.route('/api/generar_informe')
+def generar_informe():
+    fecha_inicio = request.args.get('fecha_inicio')
+    fecha_fin = request.args.get('fecha_fin')
+    id_inicio = request.args.get('id_inicio')
+    id_fin = request.args.get('id_fin')
 
+    conn = connect_db()
+    if not conn:
+        return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
+
+    cursor = conn.cursor()
+
+    # Definir los límites de la consulta
+    if id_inicio and id_fin:
+        where_clause = f"WHERE id BETWEEN {id_inicio} AND {id_fin}"
+    elif fecha_inicio and fecha_fin:
+        where_clause = f"WHERE fecha >= '{fecha_inicio}' AND fecha <= '{fecha_fin}'"
+    else:
+        return jsonify({"error": "Debe especificar un rango de fechas o un rango de ID"}), 400
+
+    ### 🔹 1️⃣ OBTENER INVENTARIO ###
+    cursor.execute(f"""
+        SELECT producto, COALESCE(SUM(entradas), 0) AS entradas, 
+               COALESCE(SUM(salidas), 0) AS salidas
+        FROM eventos_inventario
+        {where_clause}
+        GROUP BY producto
+    """)
+    inventario_data = cursor.fetchall()
+    df_inventario = pd.DataFrame(inventario_data, columns=["Producto", "Entradas", "Salidas"])
+
+    cursor.execute("""
+        SELECT producto, COALESCE(inicial, 0) 
+        FROM productos
+    """)
+    iniciales = {row[0]: row[1] for row in cursor.fetchall()}
+
+    df_inventario["Inicial"] = df_inventario["Producto"].map(iniciales)
+    df_inventario["Final"] = df_inventario["Inicial"] + df_inventario["Entradas"] - df_inventario["Salidas"]
+
+    ### 🔹 2️⃣ OBTENER RESUMEN FINANCIERO ###
+    cursor.execute(f"""
+        SELECT nombre, COALESCE(SUM(total), 0) 
+        FROM ventas 
+        WHERE saldo = 0 AND {where_clause}
+        GROUP BY nombre
+    """)
+    ventas_totales = dict(cursor.fetchall())
+
+    cursor.execute(f"""
+        SELECT nombre, COALESCE(SUM(valor), 0) 
+        FROM costos 
+        {where_clause}
+        GROUP BY nombre
+    """)
+    costos_totales = dict(cursor.fetchall())
+
+    cursor.execute(f"""
+        SELECT nombre, COALESCE(SUM(valor), 0) 
+        FROM gastos 
+        {where_clause}
+        GROUP BY nombre
+    """)
+    gastos_totales = dict(cursor.fetchall())
+
+    cursor.execute(f"""
+        SELECT nombre, COALESCE(SUM(valor), 0) 
+        FROM abonos 
+        {where_clause}
+        GROUP BY nombre
+    """)
+    abonos_totales = dict(cursor.fetchall())
+
+    cursor.execute("SELECT nombre, COALESCE(inicial, 0) FROM flujo_dinero")
+    iniciales_dinero = {row[0]: row[1] for row in cursor.fetchall()}
+
+    finanzas_data = []
+    for nombre in iniciales_dinero.keys():
+        inicial = iniciales_dinero.get(nombre, 0)
+        ingresos = ventas_totales.get(nombre, 0)
+        costos = costos_totales.get(nombre, 0)
+        gastos = gastos_totales.get(nombre, 0)
+        abonos = abonos_totales.get(nombre, 0)
+        saldo_final = inicial + ingresos - costos - gastos + abonos
+
+        finanzas_data.append([nombre, inicial, ingresos, costos, gastos, abonos, saldo_final])
+
+    df_finanzas = pd.DataFrame(finanzas_data, columns=["Cuenta", "Inicial", "Ingresos", "Costos", "Gastos", "Abonos", "Saldo Final"])
+
+    ### 🔹 3️⃣ OBTENER TIEMPO DE USO DE MESAS ###
+    cursor.execute(f"""
+        SELECT mesa, SUM(tiempo) 
+        FROM tiempos 
+        {where_clause}
+        GROUP BY mesa
+    """)
+    tiempos_data = cursor.fetchall()
+    df_tiempos = pd.DataFrame(tiempos_data, columns=["Mesa", "Tiempo Total"])
+    df_tiempos.loc["TOTAL"] = df_tiempos.sum(numeric_only=True)  # Agregar fila con el total
+
+    ### 🔹 GUARDAR INFORME EN EXCEL ###
+    file_path = "/tmp/informe.xlsx"
+    with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
+        df_inventario.to_excel(writer, sheet_name="Inventario", index=False)
+        df_finanzas.to_excel(writer, sheet_name="Finanzas", index=False)
+        df_tiempos.to_excel(writer, sheet_name="Tiempos de Uso", index=False)
+
+    cursor.close()
+    conn.close()
+
+    return send_file(file_path, as_attachment=True, download_name="informe.xlsx")
 
 if __name__ == '__main__':
     app.run(debug=True)
