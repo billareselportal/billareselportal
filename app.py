@@ -191,7 +191,7 @@ def obtener_inventario():
     print(f"[DEBUG] Rango de consulta en UTC: {limite_inferior} → {limite_superior}")
 
     # 3️⃣ Obtener todos los productos y sus valores iniciales
-    cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY producto ASC")
+    cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY id ASC")
     productos_rows = cursor.fetchall()
     inventario = {row[0]: {"producto": row[0], "inicial": float(row[1]), "entradas": 0, "salidas": 0, "final": float(row[1])} for row in productos_rows}
 
