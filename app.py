@@ -269,7 +269,6 @@ def generar_informe():
         return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
     cursor = conn.cursor()
 
-    # ⬆️ Verificamos tipo de columna 'fecha' en cada tabla y la convertimos si es texto
     tablas_con_fecha = ["eventos_inventario", "ventas", "costos", "gastos", "abonos"]
     for tabla in tablas_con_fecha:
         try:
@@ -289,7 +288,6 @@ def generar_informe():
         except:
             conn.rollback()
 
-    # 🔍 Buscar fecha del primer ID válido a partir del ID numérico ingresado
     def buscar_id_y_fecha(base_id):
         while int(base_id) < 9999:
             posibles_ids = [f"S{base_id}", f"S{base_id}-1", f"S{base_id}-1P1"]
@@ -308,7 +306,6 @@ def generar_informe():
     if not id_valido:
         return jsonify({"error": "No se encontró un ID válido"}), 400
 
-    # 🔍 Funciones para obtener DataFrames
     def fetch_df(query, params=()):
         cursor.execute(query, params)
         cols = [desc[0] for desc in cursor.description]
@@ -322,7 +319,6 @@ def generar_informe():
     productos_df = fetch_df("SELECT * FROM productos")
     flujo_df = fetch_df("SELECT * FROM flujo_dinero")
 
-    # 📊 Construcción del inventario con cálculo de valor venta
     inventario = []
     for _, row in productos_df.iterrows():
         if row['id'] > 53:
@@ -346,16 +342,22 @@ def generar_informe():
 
     df_inv = pd.DataFrame(inventario)
 
-    # 💸 Totales y resumen financiero
     ventas_total = ventas_df['total'].sum()
     ventas_edgar = ventas_df[ventas_df['nombre'].str.lower() == 'edgar']['total'].sum()
     ventas_julian = ventas_total - ventas_edgar
 
-    gastos_edgar = gastos_df['edgar'].sum()
-    gastos_julian = gastos_df['total'].sum() - gastos_edgar
+    gastos_df['julian'] = gastos_df['total'] - gastos_df['edgar']
+    costos_df['julian'] = costos_df['total'] - costos_df['edgar']
 
+    gastos_discriminado = gastos_df.groupby('concepto')[['julian', 'edgar']].sum().reset_index()
+    costos_discriminado = costos_df.groupby('concepto')[['julian', 'edgar']].sum().reset_index()
+
+    abonos_edgar_df = abonos_df[['fecha', 'valor']].copy()
+
+    gastos_edgar = gastos_df['edgar'].sum()
+    gastos_julian = gastos_df['julian'].sum()
     costos_edgar = costos_df['edgar'].sum()
-    costos_julian = costos_df['total'].sum() - costos_edgar
+    costos_julian = costos_df['julian'].sum()
 
     abonos_edgar = abonos_df['edgar'].sum() if 'edgar' in abonos_df.columns else 0
     abonos_julian = abonos_df['julian'].sum() if 'julian' in abonos_df.columns else 0
@@ -369,7 +371,6 @@ def generar_informe():
     saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - ab_edgar_pos + abs(ab_edgar_neg)
     saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + ab_edgar_pos - abs(ab_edgar_neg)
 
-    # 📊 DataFrame resumen (para hoja 2)
     resumen = pd.DataFrame([
         ["VENTA", ventas_julian],
         ["COSTOS", costos_julian],
@@ -377,18 +378,27 @@ def generar_informe():
         ["UTILIDAD", ventas_julian - costos_julian - gastos_julian]
     ], columns=["CONCEPTO", "VALOR"])
 
-    # Agregamos debajo el consolidado de Julián y Edgar
     consolidado = pd.DataFrame([
         ["Julian", inicial_julian, ventas_julian, costos_julian, gastos_julian, abonos_julian, saldo_julian],
         ["Edgar", inicial_edgar, ventas_edgar, costos_edgar, gastos_edgar, abonos_edgar, saldo_edgar]
     ], columns=["Nombre", "Inicial", "Ventas", "Costos", "Gastos", "Abonos", "Saldo Final"])
 
-    # 📃 Guardar el archivo Excel
     file_path = "/tmp/informe.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         df_inv.to_excel(writer, sheet_name="Inventario", index=False)
         resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
         consolidado.to_excel(writer, sheet_name="Resumen", startrow=7, index=False)
+        costos_discriminado.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=0, index=False)
+        gastos_discriminado.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=4, index=False)
+        abonos_edgar_df.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=8, index=False)
+
+        workbook = writer.book
+        currency_format = workbook.add_format({'num_format': '"$" #,##0'})
+
+        for sheet in ["Inventario", "Resumen"]:
+            worksheet = writer.sheets[sheet]
+            worksheet.set_column("B:H", 15, currency_format)
+            worksheet.set_column("A:A", 25)
 
     cursor.close()
     conn.close()
