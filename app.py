@@ -146,108 +146,116 @@ def obtener_inventario():
 
     cursor = conn.cursor()
 
-    # 1️⃣ Obtener horario dinámico
+    # ✅ Verificar tipo de columna 'fecha' en eventos_inventario
+    try:
+        cursor.execute("""
+            SELECT data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'eventos_inventario' AND column_name = 'fecha';
+        """)
+        tipo_fecha = cursor.fetchone()
+
+        if tipo_fecha and tipo_fecha[0] == 'text':
+            print("⚠️ La columna 'fecha' está en formato TEXT. Convirtiendo a TIMESTAMP...")
+            cursor.execute("""
+                ALTER TABLE eventos_inventario 
+                ALTER COLUMN fecha TYPE TIMESTAMP 
+                USING fecha::timestamp;
+            """)
+            conn.commit()
+            print("✅ Columna 'fecha' convertida a TIMESTAMP correctamente.")
+        else:
+            print("✅ La columna 'fecha' ya es de tipo TIMESTAMP.")
+    except Exception as e:
+        print(f"❌ Error al validar o convertir el tipo de la columna 'fecha': {e}")
+        conn.rollback()
+
+    # 🔹 1️⃣ Obtener horario dinámico
     cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
     horario_result = cursor.fetchone()
-
-    if horario_result:
-        hora_inicial, hora_final = horario_result
-    else:
-        hora_inicial, hora_final = "12:00", "12:00"  # Valores por defecto
-
+    hora_inicial, hora_final = horario_result if horario_result else ("12:00", "12:00")
     print(f"[DEBUG] Horario dinámico: {hora_inicial} - {hora_final}")
 
-    # 2️⃣ Convertir la hora actual a UTC para evitar desfase
+    # 🔹 2️⃣ Convertir hora actual a UTC
     zona_horaria_utc = pytz.utc
-    ahora = datetime.utcnow().replace(tzinfo=zona_horaria_utc)  # Se usa `datetime.utcnow()`
+    ahora = datetime.utcnow().replace(tzinfo=zona_horaria_utc)
     hora_actual = ahora.time()
-
-    # Convertir horas inicial y final a objetos `time`
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
-    # 3️⃣ Calcular el rango de fechas en UTC
+    # 🔹 3️⃣ Calcular rango de fechas
     if periodo == "dia":
-        if hora_actual < hora_inicial_time:
-            fecha_inicio = (ahora - timedelta(days=1)).date()
-        else:
-            fecha_inicio = ahora.date()
+        fecha_inicio = (ahora - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora.date()
         fecha_fin = fecha_inicio + timedelta(days=1) if hora_final_time <= hora_inicial_time else fecha_inicio
-
     elif periodo == "semana":
-        lunes_inicio = ahora - timedelta(days=ahora.weekday())  # Inicio de la semana (lunes)
-        fecha_inicio = lunes_inicio.date()
-        fecha_fin = fecha_inicio + timedelta(days=7)  # Hasta el siguiente lunes
-
+        fecha_inicio = (ahora - timedelta(days=ahora.weekday())).date()
+        fecha_fin = fecha_inicio + timedelta(days=7)
     elif periodo == "mes":
-        fecha_inicio = ahora.replace(day=1).date()  # Primer día del mes
-        fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)  # Primer día del mes siguiente
-
+        fecha_inicio = ahora.replace(day=1).date()
+        fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
     else:
         return jsonify({"error": "Periodo no válido"}), 400
 
-    # 4️⃣ Convertir las fechas a UTC antes de la consulta
-    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time).replace(tzinfo=pytz.utc)
-    limite_superior = datetime.combine(fecha_fin, hora_final_time).replace(tzinfo=pytz.utc)
-
+    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time).replace(tzinfo=zona_horaria_utc)
+    limite_superior = datetime.combine(fecha_fin, hora_final_time).replace(tzinfo=zona_horaria_utc)
     print(f"[DEBUG] Rango de consulta en UTC: {limite_inferior} → {limite_superior}")
 
-    # 3️⃣ Obtener todos los productos y sus valores iniciales
+    # 🔹 4️⃣ Obtener productos y valores iniciales
     cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY id ASC")
     productos_rows = cursor.fetchall()
-    inventario = {row[0]: {"producto": row[0], "inicial": float(row[1]), "entradas": 0, "salidas": 0, "final": float(row[1])} for row in productos_rows}
-
+    inventario = {
+        row[0]: {"producto": row[0], "inicial": float(row[1]), "entradas": 0, "salidas": 0, "final": float(row[1])}
+        for row in productos_rows
+    }
     print(f"[DEBUG] Productos obtenidos: {len(inventario)}")
 
-    # 4️⃣ Consultar inventario inicial (antes del período seleccionado)
-    cursor.execute(
-        """
+    # 🔹 5️⃣ Inventario anterior al periodo
+    cursor.execute("""
         SELECT producto, COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha < %s::timestamp
+        WHERE fecha < %s
         GROUP BY producto;
-        """,
-        (limite_inferior,)
-    )
+    """, (limite_inferior,))
     iniciales_rows = cursor.fetchall()
 
-    # Sumar valores iniciales al inventario
     for producto, cantidad in iniciales_rows:
         if producto in inventario:
             inventario[producto]["inicial"] += cantidad
             inventario[producto]["final"] += cantidad
         else:
-            inventario[producto] = {"producto": producto, "inicial": cantidad, "entradas": 0, "salidas": 0, "final": cantidad}
-
+            inventario[producto] = {
+                "producto": producto, "inicial": cantidad, "entradas": 0, "salidas": 0, "final": cantidad
+            }
     print(f"[DEBUG] Inventario inicial actualizado con eventos_inventario")
 
-    # 5️⃣ Consultar movimientos dentro del período
-    cursor.execute(
-        """
+    # 🔹 6️⃣ Movimientos dentro del período
+    cursor.execute("""
         SELECT producto, 
                COALESCE(SUM(entradas), 0) AS entradas, 
                COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        WHERE fecha >= %s::timestamp AND fecha <= %s::timestamp
+        WHERE fecha >= %s AND fecha <= %s
         GROUP BY producto;
-        """,
-        (limite_inferior, limite_superior)
-    )
+    """, (limite_inferior, limite_superior))
     periodo_rows = cursor.fetchall()
 
-    # Aplicar los movimientos al inventario
     for producto, entradas, salidas in periodo_rows:
         if producto in inventario:
             inventario[producto]["entradas"] += entradas
             inventario[producto]["salidas"] += salidas
             inventario[producto]["final"] += entradas - salidas
         else:
-            inventario[producto] = {"producto": producto, "inicial": 0, "entradas": entradas, "salidas": salidas, "final": entradas - salidas}
+            inventario[producto] = {
+                "producto": producto, "inicial": 0, "entradas": entradas,
+                "salidas": salidas, "final": entradas - salidas
+            }
 
     print(f"[DEBUG] Inventario final calculado")
 
+    cursor.close()
     conn.close()
-    return jsonify(list(inventario.values()))  # Convertir el diccionario a lista JSON
+    return jsonify(list(inventario.values()))
+
 
 
 

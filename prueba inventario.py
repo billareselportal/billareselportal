@@ -13,13 +13,13 @@ try:
     cursor.execute("""
         SELECT column_name 
         FROM information_schema.columns 
-        WHERE table_name = 'flujo_dinero';
+        WHERE table_name = 'productos';
     """)
     columnas = cursor.fetchall()
     columnas = [col[0] for col in columnas]
 
     # Obtener contenido de la tabla flujo_dinero
-    cursor.execute("SELECT * FROM flujo_dinero LIMIT 10;")
+    cursor.execute("SELECT * FROM productos LIMIT 10;")
     datos = cursor.fetchall()
 
     # Crear un DataFrame para visualizar mejor
