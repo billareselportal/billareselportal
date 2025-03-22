@@ -255,7 +255,6 @@ def obtener_inventario():
     cursor.close()
     conn.close()
     return jsonify(list(inventario.values()))
-
 @app.route('/api/generar_informe')
 def generar_informe():
     import pandas as pd
@@ -270,7 +269,27 @@ def generar_informe():
         return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
     cursor = conn.cursor()
 
-    # 1️⃣ Buscar fecha del primer ID válido
+    # ⬆️ Verificamos tipo de columna 'fecha' en cada tabla y la convertimos si es texto
+    tablas_con_fecha = ["eventos_inventario", "ventas", "costos", "gastos", "abonos"]
+    for tabla in tablas_con_fecha:
+        try:
+            cursor.execute(f"""
+                SELECT data_type 
+                FROM information_schema.columns 
+                WHERE table_name = '{tabla}' AND column_name = 'fecha';
+            """)
+            tipo_fecha = cursor.fetchone()
+            if tipo_fecha and tipo_fecha[0] == 'text':
+                cursor.execute(f"""
+                    ALTER TABLE {tabla} 
+                    ALTER COLUMN fecha TYPE TIMESTAMP 
+                    USING fecha::timestamp;
+                """)
+                conn.commit()
+        except:
+            conn.rollback()
+
+    # 🔍 Buscar fecha del primer ID válido a partir del ID numérico ingresado
     def buscar_id_y_fecha(base_id):
         while int(base_id) < 9999:
             posibles_ids = [f"S{base_id}", f"S{base_id}-1", f"S{base_id}-1P1"]
@@ -289,7 +308,7 @@ def generar_informe():
     if not id_valido:
         return jsonify({"error": "No se encontró un ID válido"}), 400
 
-    # 2️⃣ Cargar datos del periodo
+    # 🔍 Funciones para obtener DataFrames
     def fetch_df(query, params=()):
         cursor.execute(query, params)
         cols = [desc[0] for desc in cursor.description]
@@ -303,68 +322,73 @@ def generar_informe():
     productos_df = fetch_df("SELECT * FROM productos")
     flujo_df = fetch_df("SELECT * FROM flujo_dinero")
 
-    # 3️⃣ Inventario
-    inventario = {row["producto"]: {
-        "Inicial": row["inicial"],
-        "Entradas": 0,
-        "Salidas": 0,
-        "Final": row["inicial"]
-    } for _, row in productos_df.iterrows()}
+    # 📊 Construcción del inventario con cálculo de valor venta
+    inventario = []
+    for _, row in productos_df.iterrows():
+        if row['id'] > 53:
+            continue
+        producto = row['producto']
+        precio = row['precio']
+        entradas = inventario_df[inventario_df['producto'] == producto]['entradas'].sum()
+        salidas = inventario_df[inventario_df['producto'] == producto]['salidas'].sum()
+        inicial = row['inicial']
+        final = inicial + entradas - salidas
+        valor_total = salidas * precio
+        inventario.append({
+            "Producto": producto,
+            "Precio": precio,
+            "Inicial": inicial,
+            "Entradas": entradas,
+            "Salidas": salidas,
+            "Final": final,
+            "Total Venta": valor_total
+        })
 
-    for _, row in inventario_df.iterrows():
-        prod = row["producto"]
-        inventario.setdefault(prod, {"Inicial": 0, "Entradas": 0, "Salidas": 0, "Final": 0})
-        inventario[prod]["Entradas"] += row["entradas"]
-        inventario[prod]["Salidas"] += row["salidas"]
-        inventario[prod]["Final"] += row["entradas"] - row["salidas"]
+    df_inv = pd.DataFrame(inventario)
 
-    df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
-
-    # 4️⃣ Finanzas
-    ventas_total = ventas_df["total"].sum()
-    ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
+    # 💸 Totales y resumen financiero
+    ventas_total = ventas_df['total'].sum()
+    ventas_edgar = ventas_df[ventas_df['nombre'].str.lower() == 'edgar']['total'].sum()
     ventas_julian = ventas_total - ventas_edgar
 
-    gastos_edgar = gastos_df["edgar"].sum()
-    gastos_julian = gastos_df["total"].sum() - gastos_edgar
+    gastos_edgar = gastos_df['edgar'].sum()
+    gastos_julian = gastos_df['total'].sum() - gastos_edgar
 
-    costos_edgar = costos_df["edgar"].sum()
-    costos_julian = costos_df["total"].sum() - costos_edgar
+    costos_edgar = costos_df['edgar'].sum()
+    costos_julian = costos_df['total'].sum() - costos_edgar
 
-    abonos_edgar = abonos_df["edgar"].sum()
-    abonos_julian = abonos_df["julian"].sum()
+    abonos_edgar = abonos_df['edgar'].sum() if 'edgar' in abonos_df.columns else 0
+    abonos_julian = abonos_df['julian'].sum() if 'julian' in abonos_df.columns else 0
 
-    abono_edgar_positivo = abonos_edgar[abonos_edgar > 0] if abonos_edgar > 0 else 0
-    abono_edgar_negativo = abonos_edgar[abonos_edgar < 0] if abonos_edgar < 0 else 0
+    ab_edgar_pos = abonos_edgar if abonos_edgar > 0 else 0
+    ab_edgar_neg = abonos_edgar if abonos_edgar < 0 else 0
 
-    inicial_julian = flujo_df[flujo_df["nombre"].str.lower() == "julian"]["inicial"].sum()
-    inicial_edgar = flujo_df[flujo_df["nombre"].str.lower() == "edgar"]["inicial"].sum()
+    inicial_julian = flujo_df[flujo_df['nombre'].str.lower() == 'julian']['inicial'].sum()
+    inicial_edgar = flujo_df[flujo_df['nombre'].str.lower() == 'edgar']['inicial'].sum()
 
-    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
-    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
+    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - ab_edgar_pos + abs(ab_edgar_neg)
+    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + ab_edgar_pos - abs(ab_edgar_neg)
 
-    resumen_df = pd.DataFrame([{
-        "ID desde": id_valido,
-        "Fecha inicio": fecha_inicio,
-        "Ventas Julián": ventas_julian,
-        "Ventas Edgar": ventas_edgar,
-        "Gastos Julián": gastos_julian,
-        "Gastos Edgar": gastos_edgar,
-        "Costos Julián": costos_julian,
-        "Costos Edgar": costos_edgar,
-        "Abonos Edgar (+)": abono_edgar_positivo,
-        "Abonos Edgar (-)": abono_edgar_negativo,
-        "Inicial Julián": inicial_julian,
-        "Inicial Edgar": inicial_edgar,
-        "Saldo Final Julián": saldo_julian,
-        "Saldo Final Edgar": saldo_edgar
-    }])
+    # 📊 DataFrame resumen (para hoja 2)
+    resumen = pd.DataFrame([
+        ["VENTA", ventas_julian],
+        ["COSTOS", costos_julian],
+        ["GASTOS", gastos_julian],
+        ["UTILIDAD", ventas_julian - costos_julian - gastos_julian]
+    ], columns=["CONCEPTO", "VALOR"])
 
-    # 5️⃣ Guardar en Excel
+    # Agregamos debajo el consolidado de Julián y Edgar
+    consolidado = pd.DataFrame([
+        ["Julian", inicial_julian, ventas_julian, costos_julian, gastos_julian, abonos_julian, saldo_julian],
+        ["Edgar", inicial_edgar, ventas_edgar, costos_edgar, gastos_edgar, abonos_edgar, saldo_edgar]
+    ], columns=["Nombre", "Inicial", "Ventas", "Costos", "Gastos", "Abonos", "Saldo Final"])
+
+    # 📃 Guardar el archivo Excel
     file_path = "/tmp/informe.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
-        df_inv.to_excel(writer, sheet_name="Informe", startrow=0, index=False)
-        resumen_df.to_excel(writer, sheet_name="Informe", startrow=len(df_inv)+3, index=False)
+        df_inv.to_excel(writer, sheet_name="Inventario", index=False)
+        resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
+        consolidado.to_excel(writer, sheet_name="Resumen", startrow=7, index=False)
 
     cursor.close()
     conn.close()
