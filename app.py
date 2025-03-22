@@ -256,7 +256,6 @@ def obtener_inventario():
     conn.close()
     return jsonify(list(inventario.values()))
 
-
 @app.route('/api/generar_informe')
 def generar_informe():
     fecha_inicio = request.args.get('fecha_inicio')
@@ -276,8 +275,10 @@ def generar_informe():
 
     cursor = conn.cursor()
 
+    where_clause = ""
+    filtro_usado = ""
+
     if id_inicio:
-        # Si no hay id_fin, buscamos el último ID tipo "S99"
         if not id_fin:
             cursor.execute("SELECT id FROM eventos_inventario WHERE id LIKE 'S%' ORDER BY id DESC LIMIT 1")
             id_fin = cursor.fetchone()[0]
@@ -289,13 +290,12 @@ def generar_informe():
     else:
         return jsonify({"error": "Debe especificar un rango de fechas o un rango de ID"}), 400
 
-
     ### 🔹 1️⃣ OBTENER INVENTARIO ###
     cursor.execute(f"""
         SELECT producto, COALESCE(SUM(entradas), 0) AS entradas, 
                COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        {where_clause}
+        WHERE {where_clause}
         GROUP BY producto
     """)
     inventario_data = cursor.fetchall()
@@ -322,7 +322,7 @@ def generar_informe():
     cursor.execute(f"""
         SELECT nombre, COALESCE(SUM(valor), 0) 
         FROM costos 
-        {where_clause}
+        WHERE {where_clause}
         GROUP BY nombre
     """)
     costos_totales = dict(cursor.fetchall())
@@ -330,7 +330,7 @@ def generar_informe():
     cursor.execute(f"""
         SELECT nombre, COALESCE(SUM(valor), 0) 
         FROM gastos 
-        {where_clause}
+        WHERE {where_clause}
         GROUP BY nombre
     """)
     gastos_totales = dict(cursor.fetchall())
@@ -338,7 +338,7 @@ def generar_informe():
     cursor.execute(f"""
         SELECT nombre, COALESCE(SUM(valor), 0) 
         FROM abonos 
-        {where_clause}
+        WHERE {where_clause}
         GROUP BY nombre
     """)
     abonos_totales = dict(cursor.fetchall())
@@ -363,12 +363,12 @@ def generar_informe():
     cursor.execute(f"""
         SELECT mesa, SUM(tiempo) 
         FROM tiempos 
-        {where_clause}
+        WHERE {where_clause}
         GROUP BY mesa
     """)
     tiempos_data = cursor.fetchall()
     df_tiempos = pd.DataFrame(tiempos_data, columns=["Mesa", "Tiempo Total"])
-    df_tiempos.loc["TOTAL"] = df_tiempos.sum(numeric_only=True)  # Agregar fila con el total
+    df_tiempos.loc["TOTAL"] = df_tiempos.sum(numeric_only=True)
 
     ### 🔹 GUARDAR INFORME EN EXCEL ###
     file_path = "/tmp/informe.xlsx"
@@ -376,6 +376,9 @@ def generar_informe():
         df_inventario.to_excel(writer, sheet_name="Inventario", index=False)
         df_finanzas.to_excel(writer, sheet_name="Finanzas", index=False)
         df_tiempos.to_excel(writer, sheet_name="Tiempos de Uso", index=False)
+
+        # Agregar hoja con resumen del filtro usado
+        pd.DataFrame([[filtro_usado]], columns=["Filtro aplicado"]).to_excel(writer, sheet_name="Resumen", index=False)
 
     cursor.close()
     conn.close()
