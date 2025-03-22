@@ -258,132 +258,119 @@ def obtener_inventario():
 
 @app.route('/api/generar_informe')
 def generar_informe():
-    fecha_inicio = request.args.get('fecha_inicio')
-    fecha_fin = request.args.get('fecha_fin')
-    id_inicio = request.args.get('id_inicio')
-    id_fin = request.args.get('id_fin')
+    import pandas as pd
+    from flask import send_file, request, jsonify
+    from datetime import datetime
+    import os
 
-    # Transforma el ID numérico a formato alfanumérico S{id}
-    if id_inicio:
-        id_inicio = f"S{id_inicio}"
-    if id_fin:
-        id_fin = f"S{id_fin}"
+    id_inicio = request.args.get('id_inicio')
 
     conn = connect_db()
     if not conn:
         return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
-
     cursor = conn.cursor()
 
-    where_clause = ""
-    filtro_usado = ""
+    # 1️⃣ Buscar fecha del primer ID válido
+    def buscar_id_y_fecha(base_id):
+        while int(base_id) < 9999:
+            posibles_ids = [f"S{base_id}", f"S{base_id}-1", f"S{base_id}-1P1"]
+            for pid in posibles_ids:
+                cursor.execute("SELECT fecha FROM eventos_inventario WHERE id = %s LIMIT 1", (pid,))
+                row = cursor.fetchone()
+                if row:
+                    return pid, row[0]
+            base_id = str(int(base_id) + 1)
+        return None, None
 
-    if id_inicio:
-        if not id_fin:
-            cursor.execute("SELECT id FROM eventos_inventario WHERE id LIKE 'S%' ORDER BY id DESC LIMIT 1")
-            id_fin = cursor.fetchone()[0]
-        where_clause = f"id >= '{id_inicio}' AND id <= '{id_fin}'"
-        filtro_usado = f"Desde ID: {id_inicio} hasta ID: {id_fin}"
-    elif fecha_inicio and fecha_fin:
-        where_clause = f"fecha >= '{fecha_inicio}' AND fecha <= '{fecha_fin}'"
-        filtro_usado = f"Desde fecha: {fecha_inicio} hasta fecha: {fecha_fin}"
-    else:
-        return jsonify({"error": "Debe especificar un rango de fechas o un rango de ID"}), 400
+    if not id_inicio:
+        return jsonify({"error": "Debe especificar id_inicio"}), 400
 
-    ### 🔹 1️⃣ OBTENER INVENTARIO ###
-    cursor.execute(f"""
-        SELECT producto, COALESCE(SUM(entradas), 0) AS entradas, 
-               COALESCE(SUM(salidas), 0) AS salidas
-        FROM eventos_inventario
-        WHERE {where_clause}
-        GROUP BY producto
-    """)
-    inventario_data = cursor.fetchall()
-    df_inventario = pd.DataFrame(inventario_data, columns=["Producto", "Entradas", "Salidas"])
+    id_valido, fecha_inicio = buscar_id_y_fecha(id_inicio)
+    if not id_valido:
+        return jsonify({"error": "No se encontró un ID válido"}), 400
 
-    cursor.execute("""
-        SELECT producto, COALESCE(inicial, 0) 
-        FROM productos
-    """)
-    iniciales = {row[0]: row[1] for row in cursor.fetchall()}
+    # 2️⃣ Cargar datos del periodo
+    def fetch_df(query, params=()):
+        cursor.execute(query, params)
+        cols = [desc[0] for desc in cursor.description]
+        return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    df_inventario["Inicial"] = df_inventario["Producto"].map(iniciales)
-    df_inventario["Final"] = df_inventario["Inicial"] + df_inventario["Entradas"] - df_inventario["Salidas"]
+    inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
+    ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha >= %s", (fecha_inicio,))
+    gastos_df = fetch_df("SELECT * FROM gastos WHERE fecha >= %s", (fecha_inicio,))
+    costos_df = fetch_df("SELECT * FROM costos WHERE fecha >= %s", (fecha_inicio,))
+    abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
+    productos_df = fetch_df("SELECT * FROM productos")
+    flujo_df = fetch_df("SELECT * FROM flujo_dinero")
 
-    ### 🔹 2️⃣ OBTENER RESUMEN FINANCIERO ###
-    cursor.execute(f"""
-        SELECT nombre, COALESCE(SUM(total), 0) 
-        FROM ventas 
-        WHERE saldo = 0 AND {where_clause}
-        GROUP BY nombre
-    """)
-    ventas_totales = dict(cursor.fetchall())
+    # 3️⃣ Inventario
+    inventario = {row["producto"]: {
+        "Inicial": row["inicial"],
+        "Entradas": 0,
+        "Salidas": 0,
+        "Final": row["inicial"]
+    } for _, row in productos_df.iterrows()}
 
-    cursor.execute(f"""
-        SELECT nombre, COALESCE(SUM(valor), 0) 
-        FROM costos 
-        WHERE {where_clause}
-        GROUP BY nombre
-    """)
-    costos_totales = dict(cursor.fetchall())
+    for _, row in inventario_df.iterrows():
+        prod = row["producto"]
+        inventario.setdefault(prod, {"Inicial": 0, "Entradas": 0, "Salidas": 0, "Final": 0})
+        inventario[prod]["Entradas"] += row["entradas"]
+        inventario[prod]["Salidas"] += row["salidas"]
+        inventario[prod]["Final"] += row["entradas"] - row["salidas"]
 
-    cursor.execute(f"""
-        SELECT nombre, COALESCE(SUM(valor), 0) 
-        FROM gastos 
-        WHERE {where_clause}
-        GROUP BY nombre
-    """)
-    gastos_totales = dict(cursor.fetchall())
+    df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
 
-    cursor.execute(f"""
-        SELECT nombre, COALESCE(SUM(valor), 0) 
-        FROM abonos 
-        WHERE {where_clause}
-        GROUP BY nombre
-    """)
-    abonos_totales = dict(cursor.fetchall())
+    # 4️⃣ Finanzas
+    ventas_total = ventas_df["total"].sum()
+    ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
+    ventas_julian = ventas_total - ventas_edgar
 
-    cursor.execute("SELECT nombre, COALESCE(inicial, 0) FROM flujo_dinero")
-    iniciales_dinero = {row[0]: row[1] for row in cursor.fetchall()}
+    gastos_edgar = gastos_df["edgar"].sum()
+    gastos_julian = gastos_df["total"].sum() - gastos_edgar
 
-    finanzas_data = []
-    for nombre in iniciales_dinero.keys():
-        inicial = iniciales_dinero.get(nombre, 0)
-        ingresos = ventas_totales.get(nombre, 0)
-        costos = costos_totales.get(nombre, 0)
-        gastos = gastos_totales.get(nombre, 0)
-        abonos = abonos_totales.get(nombre, 0)
-        saldo_final = inicial + ingresos - costos - gastos + abonos
+    costos_edgar = costos_df["edgar"].sum()
+    costos_julian = costos_df["total"].sum() - costos_edgar
 
-        finanzas_data.append([nombre, inicial, ingresos, costos, gastos, abonos, saldo_final])
+    abonos_edgar = abonos_df["edgar"].sum()
+    abonos_julian = abonos_df["julian"].sum()
 
-    df_finanzas = pd.DataFrame(finanzas_data, columns=["Cuenta", "Inicial", "Ingresos", "Costos", "Gastos", "Abonos", "Saldo Final"])
+    abono_edgar_positivo = abonos_edgar[abonos_edgar > 0] if abonos_edgar > 0 else 0
+    abono_edgar_negativo = abonos_edgar[abonos_edgar < 0] if abonos_edgar < 0 else 0
 
-    ### 🔹 3️⃣ OBTENER TIEMPO DE USO DE MESAS ###
-    cursor.execute(f"""
-        SELECT mesa, SUM(tiempo) 
-        FROM tiempos 
-        WHERE {where_clause}
-        GROUP BY mesa
-    """)
-    tiempos_data = cursor.fetchall()
-    df_tiempos = pd.DataFrame(tiempos_data, columns=["Mesa", "Tiempo Total"])
-    df_tiempos.loc["TOTAL"] = df_tiempos.sum(numeric_only=True)
+    inicial_julian = flujo_df[flujo_df["nombre"].str.lower() == "julian"]["inicial"].sum()
+    inicial_edgar = flujo_df[flujo_df["nombre"].str.lower() == "edgar"]["inicial"].sum()
 
-    ### 🔹 GUARDAR INFORME EN EXCEL ###
+    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
+    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
+
+    resumen_df = pd.DataFrame([{
+        "ID desde": id_valido,
+        "Fecha inicio": fecha_inicio,
+        "Ventas Julián": ventas_julian,
+        "Ventas Edgar": ventas_edgar,
+        "Gastos Julián": gastos_julian,
+        "Gastos Edgar": gastos_edgar,
+        "Costos Julián": costos_julian,
+        "Costos Edgar": costos_edgar,
+        "Abonos Edgar (+)": abono_edgar_positivo,
+        "Abonos Edgar (-)": abono_edgar_negativo,
+        "Inicial Julián": inicial_julian,
+        "Inicial Edgar": inicial_edgar,
+        "Saldo Final Julián": saldo_julian,
+        "Saldo Final Edgar": saldo_edgar
+    }])
+
+    # 5️⃣ Guardar en Excel
     file_path = "/tmp/informe.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
-        df_inventario.to_excel(writer, sheet_name="Inventario", index=False)
-        df_finanzas.to_excel(writer, sheet_name="Finanzas", index=False)
-        df_tiempos.to_excel(writer, sheet_name="Tiempos de Uso", index=False)
-
-        # Agregar hoja con resumen del filtro usado
-        pd.DataFrame([[filtro_usado]], columns=["Filtro aplicado"]).to_excel(writer, sheet_name="Resumen", index=False)
+        df_inv.to_excel(writer, sheet_name="Informe", startrow=0, index=False)
+        resumen_df.to_excel(writer, sheet_name="Informe", startrow=len(df_inv)+3, index=False)
 
     cursor.close()
     conn.close()
 
     return send_file(file_path, as_attachment=True, download_name="informe.xlsx")
+
 
 if __name__ == '__main__':
     app.run(debug=True)
