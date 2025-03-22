@@ -257,8 +257,6 @@ def obtener_inventario():
     return jsonify(list(inventario.values()))
 
 
-
-
 @app.route('/api/generar_informe')
 def generar_informe():
     fecha_inicio = request.args.get('fecha_inicio')
@@ -266,19 +264,31 @@ def generar_informe():
     id_inicio = request.args.get('id_inicio')
     id_fin = request.args.get('id_fin')
 
+    # Transforma el ID numérico a formato alfanumérico S{id}
+    if id_inicio:
+        id_inicio = f"S{id_inicio}"
+    if id_fin:
+        id_fin = f"S{id_fin}"
+
     conn = connect_db()
     if not conn:
         return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
 
     cursor = conn.cursor()
 
-    # Definir los límites de la consulta
-    if id_inicio and id_fin:
-        where_clause = f"WHERE id BETWEEN {id_inicio} AND {id_fin}"
+    if id_inicio:
+        # Si no hay id_fin, buscamos el último ID tipo "S99"
+        if not id_fin:
+            cursor.execute("SELECT id FROM eventos_inventario WHERE id LIKE 'S%' ORDER BY id DESC LIMIT 1")
+            id_fin = cursor.fetchone()[0]
+        where_clause = f"id >= '{id_inicio}' AND id <= '{id_fin}'"
+        filtro_usado = f"Desde ID: {id_inicio} hasta ID: {id_fin}"
     elif fecha_inicio and fecha_fin:
-        where_clause = f"WHERE fecha >= '{fecha_inicio}' AND fecha <= '{fecha_fin}'"
+        where_clause = f"fecha >= '{fecha_inicio}' AND fecha <= '{fecha_fin}'"
+        filtro_usado = f"Desde fecha: {fecha_inicio} hasta fecha: {fecha_fin}"
     else:
         return jsonify({"error": "Debe especificar un rango de fechas o un rango de ID"}), 400
+
 
     ### 🔹 1️⃣ OBTENER INVENTARIO ###
     cursor.execute(f"""
