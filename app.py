@@ -176,35 +176,31 @@ def obtener_inventario():
     hora_inicial, hora_final = horario_result if horario_result else ("12:00", "12:00")
     print(f"[DEBUG] Horario dinámico configurado: {hora_inicial} - {hora_final}")
 
-    # 🔹 2️⃣ Obtener hora actual en UTC y local
-    zona_horaria_utc = pytz.utc
-    zona_horaria_local = pytz.timezone("America/Bogota")
-
-    ahora_utc = datetime.utcnow().replace(tzinfo=zona_horaria_utc)
-    ahora_local = datetime.now(zona_horaria_local)
-
+    # 🔹 2️⃣ Obtener hora actual en zona horaria de Colombia
+    zona_colombia = pytz.timezone("America/Bogota")
+    ahora_local = datetime.now(zona_colombia)
     print(f"[DEBUG] Hora local (Colombia): {ahora_local.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"[DEBUG] Hora UTC utilizada: {ahora_utc.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    hora_actual = ahora_utc.time()
+    hora_actual = ahora_local.time()
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
-    # 🔹 3️⃣ Calcular rango de fechas
+    # 🔹 3️⃣ Calcular rango de fechas basado en hora local
     if periodo == "dia":
-        fecha_inicio = (ahora_utc - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora_utc.date()
+        fecha_inicio = (ahora_local - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora_local.date()
         fecha_fin = fecha_inicio + timedelta(days=1) if hora_final_time <= hora_inicial_time else fecha_inicio
     elif periodo == "semana":
-        fecha_inicio = (ahora_utc - timedelta(days=ahora_utc.weekday())).date()
+        fecha_inicio = (ahora_local - timedelta(days=ahora_local.weekday())).date()
         fecha_fin = fecha_inicio + timedelta(days=7)
     elif periodo == "mes":
-        fecha_inicio = ahora_utc.replace(day=1).date()
+        fecha_inicio = ahora_local.replace(day=1).date()
         fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
     else:
         return jsonify({"error": "Periodo no válido"}), 400
 
-    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time).replace(tzinfo=zona_horaria_utc)
-    limite_superior = datetime.combine(fecha_fin, hora_final_time).replace(tzinfo=zona_horaria_utc)
+    # 🔹 4️⃣ Convertimos los límites a UTC para que funcionen con los datos en la base de datos
+    limite_inferior = zona_colombia.localize(datetime.combine(fecha_inicio, hora_inicial_time)).astimezone(pytz.utc)
+    limite_superior = zona_colombia.localize(datetime.combine(fecha_fin, hora_final_time)).astimezone(pytz.utc)
 
     print(f"[DEBUG] Periodo seleccionado: {periodo}")
     print(f"[DEBUG] Fecha inicio (sin hora): {fecha_inicio}")
@@ -213,7 +209,7 @@ def obtener_inventario():
     print(f"[DEBUG] Hora final del periodo: {hora_final_time}")
     print(f"[DEBUG] Rango de consulta en UTC: {limite_inferior} → {limite_superior}")
 
-    # 🔹 4️⃣ Obtener productos y valores iniciales
+    # 🔹 5️⃣ Obtener productos y valores iniciales
     cursor.execute("SELECT producto, COALESCE(inicial, 0) FROM productos ORDER BY id ASC")
     productos_rows = cursor.fetchall()
     inventario = {
@@ -222,7 +218,7 @@ def obtener_inventario():
     }
     print(f"[DEBUG] Productos obtenidos: {len(inventario)}")
 
-    # 🔹 5️⃣ Inventario anterior al periodo
+    # 🔹 6️⃣ Inventario anterior al periodo
     cursor.execute("""
         SELECT producto, COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
@@ -239,9 +235,10 @@ def obtener_inventario():
             inventario[producto] = {
                 "producto": producto, "inicial": cantidad, "entradas": 0, "salidas": 0, "final": cantidad
             }
+
     print(f"[DEBUG] Inventario inicial actualizado con eventos anteriores")
 
-    # 🔹 6️⃣ Movimientos dentro del período
+    # 🔹 7️⃣ Movimientos dentro del período
     cursor.execute("""
         SELECT producto, 
                COALESCE(SUM(entradas), 0) AS entradas, 
@@ -270,6 +267,7 @@ def obtener_inventario():
     return jsonify(list(inventario.values()))
 
 
+
 @app.route("/api/generar_informe")
 def generar_informe():
     id_inicio = request.args.get("id_inicio", "30")
@@ -277,7 +275,7 @@ def generar_informe():
     conn = connect_db()
     cursor = conn.cursor()
 
-    # Verificar tipo de fecha
+    # Verificar tipo de fecha en 'eventos_inventario'
     cursor.execute("""
         SELECT data_type FROM information_schema.columns 
         WHERE table_name = 'eventos_inventario' AND column_name = 'fecha'
@@ -286,6 +284,19 @@ def generar_informe():
     if tipo_fecha and tipo_fecha[0] == 'text':
         cursor.execute("""
             ALTER TABLE eventos_inventario
+            ALTER COLUMN fecha TYPE TIMESTAMP USING fecha::timestamp
+        """)
+        conn.commit()
+
+    # Verificar tipo de fecha en 'tiempos'
+    cursor.execute("""
+        SELECT data_type FROM information_schema.columns 
+        WHERE table_name = 'tiempos' AND column_name = 'fecha'
+    """)
+    tipo_fecha_tiempo = cursor.fetchone()
+    if tipo_fecha_tiempo and tipo_fecha_tiempo[0] == 'text':
+        cursor.execute("""
+            ALTER TABLE tiempos
             ALTER COLUMN fecha TYPE TIMESTAMP USING fecha::timestamp
         """)
         conn.commit()
