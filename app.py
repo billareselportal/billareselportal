@@ -199,8 +199,9 @@ def obtener_inventario():
         return jsonify({"error": "Periodo no válido"}), 400
 
     # 🔹 4️⃣ Convertimos los límites a UTC para que funcionen con los datos en la base de datos
-    limite_inferior = zona_colombia.localize(datetime.combine(fecha_inicio, hora_inicial_time)).astimezone(pytz.utc)
-    limite_superior = zona_colombia.localize(datetime.combine(fecha_fin, hora_final_time)).astimezone(pytz.utc)
+    limite_inferior = datetime.combine(fecha_inicio, hora_inicial)
+    limite_superior = datetime.combine(fecha_fin, hora_final)
+
 
     print(f"[DEBUG] Periodo seleccionado: {periodo}")
     print(f"[DEBUG] Fecha inicio (sin hora): {fecha_inicio}")
@@ -244,7 +245,7 @@ def obtener_inventario():
                COALESCE(SUM(entradas), 0) AS entradas, 
                COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        WHERE fecha >= %s AND fecha <= %s
+        WHERE fecha >= ? AND fecha <= ?
         GROUP BY producto;
     """, (limite_inferior, limite_superior))
     periodo_rows = cursor.fetchall()
@@ -322,13 +323,17 @@ def generar_informe():
         cols = [desc[0] for desc in cursor.description]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    # Cargar datos
+    # Cargar datos completos
     inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
     productos_df = fetch_df("SELECT * FROM productos")
     ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    ventas_antes_df = fetch_df("SELECT * FROM ventas WHERE fecha::timestamp < %s", (fecha_inicio,))
     gastos_df = fetch_df("SELECT * FROM gastos WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    gastos_antes_df = fetch_df("SELECT * FROM gastos WHERE fecha::timestamp < %s", (fecha_inicio,))
     costos_df = fetch_df("SELECT * FROM costos WHERE fecha::timestamp >= %s", (fecha_inicio,))
-    abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    costos_antes_df = fetch_df("SELECT * FROM costos WHERE fecha::timestamp < %s", (fecha_inicio,))
+    abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
+    abonos_antes_df = fetch_df("SELECT * FROM abonos WHERE fecha < %s", (fecha_inicio,))
     flujo_df = fetch_df("SELECT * FROM flujo_dinero")
     tiempos_df = fetch_df("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
 
@@ -353,28 +358,38 @@ def generar_informe():
     df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
     df_inv["Valor Venta"] = df_inv["Precio"] * df_inv["Salidas"]
 
-    # Finanzas
-    ventas_total = ventas_df["total"].sum()
+    # Finanzas actuales
     ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
-    ventas_julian = ventas_total - ventas_edgar
-
+    ventas_julian = total_servicios - ventas_edgar
     costos_df["julian"] = costos_df["total"] - costos_df["edgar"]
     gastos_df["julian"] = gastos_df["total"] - gastos_df["edgar"]
-
     costos_julian = costos_df["julian"].sum()
     costos_edgar = costos_df["edgar"].sum()
     gastos_julian = gastos_df["julian"].sum()
     gastos_edgar = gastos_df["edgar"].sum()
-
     abonos_edgar = abonos_df["edgar"].sum()
     abono_edgar_positivo = abonos_edgar if abonos_edgar > 0 else 0
     abono_edgar_negativo = abonos_edgar if abonos_edgar < 0 else 0
 
+    # Acumulado anterior
+    ventas_edgar_antes = ventas_antes_df[ventas_antes_df["nombre"].str.lower() == "edgar"]["total"].sum()
+    ventas_total_antes = ventas_antes_df["total"].sum()
+    ventas_julian_antes = ventas_total_antes - ventas_edgar_antes
+    gastos_julian_antes = gastos_antes_df["total"].sum() - gastos_antes_df["edgar"].sum()
+    gastos_edgar_antes = gastos_antes_df["edgar"].sum()
+    costos_julian_antes = costos_antes_df["total"].sum() - costos_antes_df["edgar"].sum()
+    costos_edgar_antes = costos_antes_df["edgar"].sum()
+    abonos_edgar_antes = abonos_antes_df["edgar"].sum()
+    abono_edgar_pos_antes = abonos_edgar_antes if abonos_edgar_antes > 0 else 0
+    abono_edgar_neg_antes = abonos_edgar_antes if abonos_edgar_antes < 0 else 0
     inicial_julian = flujo_df[flujo_df["nombre"].str.lower() == "julian"]["inicial"].sum()
     inicial_edgar = flujo_df[flujo_df["nombre"].str.lower() == "edgar"]["inicial"].sum()
 
-    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
-    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
+    acumulado_julian = inicial_julian + ventas_julian_antes - gastos_julian_antes - costos_julian_antes - abono_edgar_pos_antes + abs(abono_edgar_neg_antes)
+    acumulado_edgar = inicial_edgar + ventas_edgar_antes - gastos_edgar_antes - costos_edgar_antes + abono_edgar_pos_antes - abs(abono_edgar_neg_antes)
+
+    saldo_julian = acumulado_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
+    saldo_edgar = acumulado_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
 
     # Detalles
     df_costos = costos_df.groupby("nombre")[["julian", "edgar"]].sum().reset_index()
@@ -428,6 +443,8 @@ def generar_informe():
             ["GASTOS", gastos_julian],
             ["UTILIDAD", ventas_julian - costos_julian - gastos_julian],
             [],
+            ["ACUMULADO JULIAN", acumulado_julian],
+            ["ACUMULADO EDGAR", acumulado_edgar],
             ["SALDO FINAL JULIAN", saldo_julian],
             ["SALDO FINAL EDGAR", saldo_edgar]
         ]
