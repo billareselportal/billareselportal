@@ -174,30 +174,43 @@ def obtener_inventario():
     cursor.execute("SELECT hora_inicial, hora_final FROM horarios ORDER BY id DESC LIMIT 1")
     horario_result = cursor.fetchone()
     hora_inicial, hora_final = horario_result if horario_result else ("12:00", "12:00")
-    print(f"[DEBUG] Horario dinámico: {hora_inicial} - {hora_final}")
+    print(f"[DEBUG] Horario dinámico configurado: {hora_inicial} - {hora_final}")
 
-    # 🔹 2️⃣ Convertir hora actual a UTC
+    # 🔹 2️⃣ Obtener hora actual en UTC y local
     zona_horaria_utc = pytz.utc
-    ahora = datetime.utcnow().replace(tzinfo=zona_horaria_utc)
-    hora_actual = ahora.time()
+    zona_horaria_local = pytz.timezone("America/Bogota")
+
+    ahora_utc = datetime.utcnow().replace(tzinfo=zona_horaria_utc)
+    ahora_local = datetime.now(zona_horaria_local)
+
+    print(f"[DEBUG] Hora local (Colombia): {ahora_local.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"[DEBUG] Hora UTC utilizada: {ahora_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    hora_actual = ahora_utc.time()
     hora_inicial_time = datetime.strptime(hora_inicial, "%H:%M").time()
     hora_final_time = datetime.strptime(hora_final, "%H:%M").time()
 
     # 🔹 3️⃣ Calcular rango de fechas
     if periodo == "dia":
-        fecha_inicio = (ahora - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora.date()
+        fecha_inicio = (ahora_utc - timedelta(days=1)).date() if hora_actual < hora_inicial_time else ahora_utc.date()
         fecha_fin = fecha_inicio + timedelta(days=1) if hora_final_time <= hora_inicial_time else fecha_inicio
     elif periodo == "semana":
-        fecha_inicio = (ahora - timedelta(days=ahora.weekday())).date()
+        fecha_inicio = (ahora_utc - timedelta(days=ahora_utc.weekday())).date()
         fecha_fin = fecha_inicio + timedelta(days=7)
     elif periodo == "mes":
-        fecha_inicio = ahora.replace(day=1).date()
+        fecha_inicio = ahora_utc.replace(day=1).date()
         fecha_fin = (fecha_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
     else:
         return jsonify({"error": "Periodo no válido"}), 400
 
     limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time).replace(tzinfo=zona_horaria_utc)
     limite_superior = datetime.combine(fecha_fin, hora_final_time).replace(tzinfo=zona_horaria_utc)
+
+    print(f"[DEBUG] Periodo seleccionado: {periodo}")
+    print(f"[DEBUG] Fecha inicio (sin hora): {fecha_inicio}")
+    print(f"[DEBUG] Fecha fin (sin hora): {fecha_fin}")
+    print(f"[DEBUG] Hora inicial del periodo: {hora_inicial_time}")
+    print(f"[DEBUG] Hora final del periodo: {hora_final_time}")
     print(f"[DEBUG] Rango de consulta en UTC: {limite_inferior} → {limite_superior}")
 
     # 🔹 4️⃣ Obtener productos y valores iniciales
@@ -226,7 +239,7 @@ def obtener_inventario():
             inventario[producto] = {
                 "producto": producto, "inicial": cantidad, "entradas": 0, "salidas": 0, "final": cantidad
             }
-    print(f"[DEBUG] Inventario inicial actualizado con eventos_inventario")
+    print(f"[DEBUG] Inventario inicial actualizado con eventos anteriores")
 
     # 🔹 6️⃣ Movimientos dentro del período
     cursor.execute("""
@@ -250,11 +263,13 @@ def obtener_inventario():
                 "salidas": salidas, "final": entradas - salidas
             }
 
-    print(f"[DEBUG] Inventario final calculado")
+    print(f"[DEBUG] Inventario final calculado correctamente")
 
     cursor.close()
     conn.close()
     return jsonify(list(inventario.values()))
+
+
 @app.route("/api/generar_informe")
 def generar_informe():
     id_inicio = request.args.get("id_inicio", "30")
@@ -262,7 +277,7 @@ def generar_informe():
     conn = connect_db()
     cursor = conn.cursor()
 
-    # Verificar tipo de fecha en 'eventos_inventario'
+    # Verificar tipo de fecha
     cursor.execute("""
         SELECT data_type FROM information_schema.columns 
         WHERE table_name = 'eventos_inventario' AND column_name = 'fecha'
@@ -275,7 +290,7 @@ def generar_informe():
         """)
         conn.commit()
 
-    # Buscar el primer ID válido
+    # Buscar ID válido
     def buscar_id_valido(base_id):
         while int(base_id) < 9999:
             for sufijo in ["", "-1", "-1P1"]:
@@ -290,12 +305,13 @@ def generar_informe():
     if not fecha_inicio:
         return jsonify({"error": "No se encontró un ID válido"}), 400
 
+    # Helper para cargar data
     def fetch_df(query, params=()):
         cursor.execute(query, params)
         cols = [desc[0] for desc in cursor.description]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    # Cargar data
+    # Cargar datos
     inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
     productos_df = fetch_df("SELECT * FROM productos")
     ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha::timestamp >= %s", (fecha_inicio,))
@@ -303,8 +319,9 @@ def generar_informe():
     costos_df = fetch_df("SELECT * FROM costos WHERE fecha::timestamp >= %s", (fecha_inicio,))
     abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha::timestamp >= %s", (fecha_inicio,))
     flujo_df = fetch_df("SELECT * FROM flujo_dinero")
+    tiempos_df = fetch_df("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
 
-    ### 1. Inventario
+    # Inventario
     inventario = {
         row["producto"]: {
             "Precio": row["precio"],
@@ -325,7 +342,7 @@ def generar_informe():
     df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
     df_inv["Valor Venta"] = df_inv["Precio"] * df_inv["Salidas"]
 
-    ### 2. Finanzas globales
+    # Finanzas
     ventas_total = ventas_df["total"].sum()
     ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
     ventas_julian = ventas_total - ventas_edgar
@@ -348,21 +365,52 @@ def generar_informe():
     saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
     saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
 
-    ### 3. Detalle costos, gastos y abonos
+    # Detalles
     df_costos = costos_df.groupby("nombre")[["julian", "edgar"]].sum().reset_index()
     df_gastos = gastos_df.groupby("motivo")[["julian", "edgar"]].sum().reset_index()
     df_abonos = abonos_df[abonos_df["edgar"] != 0][["fecha", "concepto", "edgar"]]
 
-    ### 4. Guardar archivo Excel
+    # Guardar en Excel
     file_path = "/tmp/informe_final.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         df_inv.to_excel(writer, sheet_name="Inventario", index=False)
-
+        sheet = writer.sheets["Inventario"]
         workbook = writer.book
-        money_format = workbook.add_format({'num_format': '$ #,##0', 'align': 'right'})
-        center = workbook.add_format({'align': 'center'})
-        bold = workbook.add_format({'bold': True})
 
+        money_format = workbook.add_format({'num_format': '$ #,##0', 'align': 'right'})
+        bold = workbook.add_format({'bold': True})
+        center = workbook.add_format({'align': 'center'})
+
+        # Ajuste columna Producto
+        sheet.set_column("A:A", 25)
+        sheet.set_column("F:F", 15, money_format)
+
+        # Totales personalizados
+        total_venta_productos = df_inv[
+            ~df_inv["Producto"].str.upper().str.startswith("TIEMPO")
+            & (df_inv["Producto"].str.upper() != "GUANTES ALQUILER")
+        ]["Valor Venta"].sum()
+
+        total_tiempos = tiempos_df["tiempo"].sum()
+
+        guantes = inventario.get("GUANTES ALQUILER", {"Salidas": 0, "Precio": 0})
+        total_guantes = guantes["Salidas"] * guantes["Precio"]
+
+        total_servicios = total_venta_productos + total_tiempos + total_guantes
+
+        resumen_inv = [
+            ["TOTAL VENTA PRODUCTOS", total_venta_productos],
+            ["TOTAL TIEMPOS", total_tiempos],
+            ["GUANTES ALQUILER", total_guantes],
+            ["TOTAL SERVICIOS", total_servicios]
+        ]
+
+        for i, (concepto, valor) in enumerate(resumen_inv):
+            fila = 3 + i  # J4 -> fila 3
+            sheet.write(f"J{fila+1}", concepto, bold)
+            sheet.write(f"K{fila+1}", valor, money_format)
+
+        # Hoja Resumen
         resumen = [
             ["VENTA", ventas_julian],
             ["COSTOS", costos_julian],
@@ -379,19 +427,20 @@ def generar_informe():
         df_gastos.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=4, index=False)
         df_abonos.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=8, index=False)
 
-        sheet = writer.sheets["Resumen"]
-        sheet.set_column("A:A", 25, center)
-        sheet.set_column("B:B", 18, money_format)
-        sheet.set_column("E:F", 18, money_format)
-        sheet.set_column("I:J", 18, money_format)
-        sheet.set_column("C:D", 18)
-        sheet.set_column("G:H", 18)
-        sheet.write("A1", f"Resumen desde ID: {id_valido}", bold)
+        resumen_sheet = writer.sheets["Resumen"]
+        resumen_sheet.set_column("A:A", 25, center)
+        resumen_sheet.set_column("B:B", 18, money_format)
+        resumen_sheet.set_column("E:F", 18, money_format)
+        resumen_sheet.set_column("I:J", 18, money_format)
+        resumen_sheet.set_column("C:D", 18)
+        resumen_sheet.set_column("G:H", 18)
+        resumen_sheet.write("A1", f"Resumen desde ID: {id_valido}", bold)
 
     cursor.close()
     conn.close()
 
     return send_file(file_path, as_attachment=True, download_name="informe_final.xlsx")
+
 
 if __name__ == '__main__':
     app.run(debug=True)
