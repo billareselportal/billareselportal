@@ -199,9 +199,8 @@ def obtener_inventario():
         return jsonify({"error": "Periodo no válido"}), 400
 
     # 🔹 4️⃣ Convertimos los límites a UTC para que funcionen con los datos en la base de datos
-    limite_inferior = datetime.combine(fecha_inicio, hora_inicial)
-    limite_superior = datetime.combine(fecha_fin, hora_final)
-
+    limite_inferior = datetime.combine(fecha_inicio, hora_inicial_time)
+    limite_superior = datetime.combine(fecha_fin, hora_final_time)
 
     print(f"[DEBUG] Periodo seleccionado: {periodo}")
     print(f"[DEBUG] Fecha inicio (sin hora): {fecha_inicio}")
