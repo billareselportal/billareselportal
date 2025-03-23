@@ -269,19 +269,19 @@ def obtener_inventario():
 
 @app.route("/api/generar_informe")
 def generar_informe():
-    id_inicio = request.args.get("id_inicio", "30")
+    id_inicio = request.args.get("id_inicio", "1")
+    id_fin = request.args.get("id_fin", "")
 
     conn = connect_db()
     cursor = conn.cursor()
 
-    # 🟡 Verificación y conversión de columnas 'fecha'
     def verificar_columna_fecha(tabla):
         cursor.execute(f"""
             SELECT data_type FROM information_schema.columns 
             WHERE table_name = '{tabla}' AND column_name = 'fecha'
         """)
-        tipo_fecha = cursor.fetchone()
-        if tipo_fecha and tipo_fecha[0] == 'text':
+        tipo = cursor.fetchone()
+        if tipo and tipo[0] == 'text':
             cursor.execute(f"""
                 ALTER TABLE {tabla}
                 ALTER COLUMN fecha TYPE TIMESTAMP USING fecha::timestamp
@@ -291,27 +291,35 @@ def generar_informe():
     for tabla in ["eventos_inventario", "tiempos", "ventas", "gastos", "costos", "abonos"]:
         verificar_columna_fecha(tabla)
 
-    # 🔍 Buscar ID válido
-    def buscar_id_valido(base_id):
-        while int(base_id) < 9999:
-            for sufijo in ["", "-1", "-1P1"]:
-                cursor.execute("SELECT fecha FROM eventos_inventario WHERE id = %s LIMIT 1", (f"S{base_id}{sufijo}",))
-                row = cursor.fetchone()
-                if row:
-                    return f"S{base_id}{sufijo}", row[0]
-            base_id = str(int(base_id) + 1)
+    def buscar_fecha_por_id(base_id):
+        for sufijo in ["", "-1", "-1P1"]:
+            id_buscar = f"S{base_id}{sufijo}"
+            cursor.execute("SELECT fecha FROM eventos_inventario WHERE id = %s LIMIT 1", (id_buscar,))
+            row = cursor.fetchone()
+            if row:
+                return id_buscar, row[0]
         return None, None
 
-    id_valido, fecha_inicio = buscar_id_valido(id_inicio)
+    id_valido, fecha_inicio = buscar_fecha_por_id(id_inicio)
+    fecha_fin = None
+    if id_fin:
+        _, fecha_fin = buscar_fecha_por_id(id_fin)
+
     if not fecha_inicio:
         return jsonify({"error": "No se encontró un ID válido"}), 400
 
-    def fetch_df(query, params=()):
+    # Helper con rango de fechas
+    def fetch_df(query_base, params=()):
+        if fecha_fin:
+            query = query_base + " AND fecha <= %s"
+            params = params + (fecha_fin,)
+        else:
+            query = query_base
         cursor.execute(query, params)
         cols = [desc[0] for desc in cursor.description]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
-    # 🔄 Cargar datos del periodo y totales acumulados
+    # Cargar datos
     inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
     productos_df = fetch_df("SELECT * FROM productos")
     ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha >= %s", (fecha_inicio,))
@@ -319,7 +327,7 @@ def generar_informe():
     costos_df = fetch_df("SELECT * FROM costos WHERE fecha >= %s", (fecha_inicio,))
     abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
     tiempos_df = fetch_df("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
-    flujo_df = fetch_df("SELECT * FROM flujo_dinero")
+    flujo_df = fetch_df("SELECT * FROM flujo_dinero WHERE 1=1")
 
     # 🔁 Acumulado antes del periodo
     ventas_antes = fetch_df("SELECT * FROM ventas WHERE fecha < %s", (fecha_inicio,))
