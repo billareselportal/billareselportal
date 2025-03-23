@@ -405,7 +405,9 @@ def generar_informe():
         center = book.add_format({'align': 'center'})
 
         sheet.set_column("A:A", 25)
-        sheet.set_column("F:F", 15, money)
+        sheet.set_column("F:F", 15)  # Columna Final, sin formato
+        sheet.set_column("G:G", 18, money)  # Columna Valor Venta, con formato $ #,##0
+
 
         resumen_inv = [
             ["TOTAL VENTA PRODUCTOS", total_venta_productos],
