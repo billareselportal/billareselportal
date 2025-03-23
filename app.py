@@ -255,55 +255,39 @@ def obtener_inventario():
     cursor.close()
     conn.close()
     return jsonify(list(inventario.values()))
-@app.route('/api/generar_informe')
+@app.route("/api/generar_informe")
 def generar_informe():
-    import pandas as pd
-    from flask import send_file, request, jsonify
-    from datetime import datetime
-    import os
-
-    id_inicio = request.args.get('id_inicio')
+    id_inicio = request.args.get("id_inicio", "30")
 
     conn = connect_db()
-    if not conn:
-        return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
     cursor = conn.cursor()
 
-    tablas_con_fecha = ["eventos_inventario", "ventas", "costos", "gastos", "abonos"]
-    for tabla in tablas_con_fecha:
-        try:
-            cursor.execute(f"""
-                SELECT data_type 
-                FROM information_schema.columns 
-                WHERE table_name = '{tabla}' AND column_name = 'fecha';
-            """)
-            tipo_fecha = cursor.fetchone()
-            if tipo_fecha and tipo_fecha[0] == 'text':
-                cursor.execute(f"""
-                    ALTER TABLE {tabla} 
-                    ALTER COLUMN fecha TYPE TIMESTAMP 
-                    USING fecha::timestamp;
-                """)
-                conn.commit()
-        except:
-            conn.rollback()
+    # Verificar tipo de fecha en 'eventos_inventario'
+    cursor.execute("""
+        SELECT data_type FROM information_schema.columns 
+        WHERE table_name = 'eventos_inventario' AND column_name = 'fecha'
+    """)
+    tipo_fecha = cursor.fetchone()
+    if tipo_fecha and tipo_fecha[0] == 'text':
+        cursor.execute("""
+            ALTER TABLE eventos_inventario
+            ALTER COLUMN fecha TYPE TIMESTAMP USING fecha::timestamp
+        """)
+        conn.commit()
 
-    def buscar_id_y_fecha(base_id):
+    # Buscar el primer ID válido
+    def buscar_id_valido(base_id):
         while int(base_id) < 9999:
-            posibles_ids = [f"S{base_id}", f"S{base_id}-1", f"S{base_id}-1P1"]
-            for pid in posibles_ids:
-                cursor.execute("SELECT fecha FROM eventos_inventario WHERE id = %s LIMIT 1", (pid,))
+            for sufijo in ["", "-1", "-1P1"]:
+                cursor.execute("SELECT fecha FROM eventos_inventario WHERE id = %s LIMIT 1", (f"S{base_id}{sufijo}",))
                 row = cursor.fetchone()
                 if row:
-                    return pid, row[0]
+                    return f"S{base_id}{sufijo}", row[0]
             base_id = str(int(base_id) + 1)
         return None, None
 
-    if not id_inicio:
-        return jsonify({"error": "Debe especificar id_inicio"}), 400
-
-    id_valido, fecha_inicio = buscar_id_y_fecha(id_inicio)
-    if not id_valido:
+    id_valido, fecha_inicio = buscar_id_valido(id_inicio)
+    if not fecha_inicio:
         return jsonify({"error": "No se encontró un ID válido"}), 400
 
     def fetch_df(query, params=()):
@@ -311,100 +295,103 @@ def generar_informe():
         cols = [desc[0] for desc in cursor.description]
         return pd.DataFrame(cursor.fetchall(), columns=cols)
 
+    # Cargar data
     inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
-    ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha >= %s", (fecha_inicio,))
-    gastos_df = fetch_df("SELECT * FROM gastos WHERE fecha >= %s", (fecha_inicio,))
-    costos_df = fetch_df("SELECT * FROM costos WHERE fecha >= %s", (fecha_inicio,))
-    abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
     productos_df = fetch_df("SELECT * FROM productos")
+    ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    gastos_df = fetch_df("SELECT * FROM gastos WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    costos_df = fetch_df("SELECT * FROM costos WHERE fecha::timestamp >= %s", (fecha_inicio,))
+    abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha::timestamp >= %s", (fecha_inicio,))
     flujo_df = fetch_df("SELECT * FROM flujo_dinero")
 
-    inventario = []
-    for _, row in productos_df.iterrows():
-        if row['id'] > 53:
-            continue
-        producto = row['producto']
-        precio = row['precio']
-        entradas = inventario_df[inventario_df['producto'] == producto]['entradas'].sum()
-        salidas = inventario_df[inventario_df['producto'] == producto]['salidas'].sum()
-        inicial = row['inicial']
-        final = inicial + entradas - salidas
-        valor_total = salidas * precio
-        inventario.append({
-            "Producto": producto,
-            "Precio": precio,
-            "Inicial": inicial,
-            "Entradas": entradas,
-            "Salidas": salidas,
-            "Final": final,
-            "Total Venta": valor_total
-        })
+    ### 1. Inventario
+    inventario = {
+        row["producto"]: {
+            "Precio": row["precio"],
+            "Inicial": row["inicial"],
+            "Entradas": 0,
+            "Salidas": 0,
+            "Final": row["inicial"]
+        } for _, row in productos_df.iterrows()
+    }
 
-    df_inv = pd.DataFrame(inventario)
+    for _, row in inventario_df.iterrows():
+        prod = row["producto"]
+        if prod in inventario:
+            inventario[prod]["Entradas"] += row["entradas"]
+            inventario[prod]["Salidas"] += row["salidas"]
+            inventario[prod]["Final"] += row["entradas"] - row["salidas"]
 
-    ventas_total = ventas_df['total'].sum()
-    ventas_edgar = ventas_df[ventas_df['nombre'].str.lower() == 'edgar']['total'].sum()
+    df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
+    df_inv["Valor Venta"] = df_inv["Precio"] * df_inv["Salidas"]
+
+    ### 2. Finanzas globales
+    ventas_total = ventas_df["total"].sum()
+    ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
     ventas_julian = ventas_total - ventas_edgar
 
-    gastos_df['julian'] = gastos_df['total'] - gastos_df['edgar']
-    costos_df['julian'] = costos_df['total'] - costos_df['edgar']
+    costos_df["julian"] = costos_df["total"] - costos_df["edgar"]
+    gastos_df["julian"] = gastos_df["total"] - gastos_df["edgar"]
 
-    gastos_discriminado = gastos_df.groupby('concepto')[['julian', 'edgar']].sum().reset_index()
-    costos_discriminado = costos_df.groupby('concepto')[['julian', 'edgar']].sum().reset_index()
+    costos_julian = costos_df["julian"].sum()
+    costos_edgar = costos_df["edgar"].sum()
+    gastos_julian = gastos_df["julian"].sum()
+    gastos_edgar = gastos_df["edgar"].sum()
 
-    abonos_edgar_df = abonos_df[['fecha', 'valor']].copy()
+    abonos_edgar = abonos_df["edgar"].sum()
+    abono_edgar_positivo = abonos_edgar if abonos_edgar > 0 else 0
+    abono_edgar_negativo = abonos_edgar if abonos_edgar < 0 else 0
 
-    gastos_edgar = gastos_df['edgar'].sum()
-    gastos_julian = gastos_df['julian'].sum()
-    costos_edgar = costos_df['edgar'].sum()
-    costos_julian = costos_df['julian'].sum()
+    inicial_julian = flujo_df[flujo_df["nombre"].str.lower() == "julian"]["inicial"].sum()
+    inicial_edgar = flujo_df[flujo_df["nombre"].str.lower() == "edgar"]["inicial"].sum()
 
-    abonos_edgar = abonos_df['edgar'].sum() if 'edgar' in abonos_df.columns else 0
-    abonos_julian = abonos_df['julian'].sum() if 'julian' in abonos_df.columns else 0
+    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - abono_edgar_positivo + abs(abono_edgar_negativo)
+    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + abono_edgar_positivo - abs(abono_edgar_negativo)
 
-    ab_edgar_pos = abonos_edgar if abonos_edgar > 0 else 0
-    ab_edgar_neg = abonos_edgar if abonos_edgar < 0 else 0
+    ### 3. Detalle costos, gastos y abonos
+    df_costos = costos_df.groupby("nombre")[["julian", "edgar"]].sum().reset_index()
+    df_gastos = gastos_df.groupby("motivo")[["julian", "edgar"]].sum().reset_index()
+    df_abonos = abonos_df[abonos_df["edgar"] != 0][["fecha", "concepto", "edgar"]]
 
-    inicial_julian = flujo_df[flujo_df['nombre'].str.lower() == 'julian']['inicial'].sum()
-    inicial_edgar = flujo_df[flujo_df['nombre'].str.lower() == 'edgar']['inicial'].sum()
-
-    saldo_julian = inicial_julian + ventas_julian - gastos_julian - costos_julian - ab_edgar_pos + abs(ab_edgar_neg)
-    saldo_edgar = inicial_edgar + ventas_edgar - gastos_edgar - costos_edgar + ab_edgar_pos - abs(ab_edgar_neg)
-
-    resumen = pd.DataFrame([
-        ["VENTA", ventas_julian],
-        ["COSTOS", costos_julian],
-        ["GASTOS", gastos_julian],
-        ["UTILIDAD", ventas_julian - costos_julian - gastos_julian]
-    ], columns=["CONCEPTO", "VALOR"])
-
-    consolidado = pd.DataFrame([
-        ["Julian", inicial_julian, ventas_julian, costos_julian, gastos_julian, abonos_julian, saldo_julian],
-        ["Edgar", inicial_edgar, ventas_edgar, costos_edgar, gastos_edgar, abonos_edgar, saldo_edgar]
-    ], columns=["Nombre", "Inicial", "Ventas", "Costos", "Gastos", "Abonos", "Saldo Final"])
-
-    file_path = "/tmp/informe.xlsx"
+    ### 4. Guardar archivo Excel
+    file_path = "/tmp/informe_final.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
         df_inv.to_excel(writer, sheet_name="Inventario", index=False)
-        resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
-        consolidado.to_excel(writer, sheet_name="Resumen", startrow=7, index=False)
-        costos_discriminado.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=0, index=False)
-        gastos_discriminado.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=4, index=False)
-        abonos_edgar_df.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=8, index=False)
 
         workbook = writer.book
-        currency_format = workbook.add_format({'num_format': '"$" #,##0'})
+        money_format = workbook.add_format({'num_format': '$ #,##0', 'align': 'right'})
+        center = workbook.add_format({'align': 'center'})
+        bold = workbook.add_format({'bold': True})
 
-        for sheet in ["Inventario", "Resumen"]:
-            worksheet = writer.sheets[sheet]
-            worksheet.set_column("B:H", 15, currency_format)
-            worksheet.set_column("A:A", 25)
+        resumen = [
+            ["VENTA", ventas_julian],
+            ["COSTOS", costos_julian],
+            ["GASTOS", gastos_julian],
+            ["UTILIDAD", ventas_julian - costos_julian - gastos_julian],
+            [],
+            ["SALDO FINAL JULIAN", saldo_julian],
+            ["SALDO FINAL EDGAR", saldo_edgar]
+        ]
+        df_resumen = pd.DataFrame(resumen, columns=["CONCEPTO", "VALOR"])
+        df_resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
+
+        df_costos.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=0, index=False)
+        df_gastos.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=4, index=False)
+        df_abonos.to_excel(writer, sheet_name="Resumen", startrow=12, startcol=8, index=False)
+
+        sheet = writer.sheets["Resumen"]
+        sheet.set_column("A:A", 25, center)
+        sheet.set_column("B:B", 18, money_format)
+        sheet.set_column("E:F", 18, money_format)
+        sheet.set_column("I:J", 18, money_format)
+        sheet.set_column("C:D", 18)
+        sheet.set_column("G:H", 18)
+        sheet.write("A1", f"Resumen desde ID: {id_valido}", bold)
 
     cursor.close()
     conn.close()
 
-    return send_file(file_path, as_attachment=True, download_name="informe.xlsx")
-
+    return send_file(file_path, as_attachment=True, download_name="informe_final.xlsx")
 
 if __name__ == '__main__':
     app.run(debug=True)
