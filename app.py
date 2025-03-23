@@ -321,13 +321,19 @@ def generar_informe():
 
     # Cargar datos
     inventario_df = fetch_df("SELECT * FROM eventos_inventario WHERE fecha >= %s", (fecha_inicio,))
-    productos_df = fetch_df("SELECT * FROM productos")
+
+    # 👇 Aquí el cambio importante: productos no tiene columna 'fecha', así que lo cargamos aparte sin filtros
+    cursor.execute("SELECT * FROM productos")
+    cols = [desc[0] for desc in cursor.description]
+    productos_df = pd.DataFrame(cursor.fetchall(), columns=cols)
+
     ventas_df = fetch_df("SELECT * FROM ventas WHERE fecha >= %s", (fecha_inicio,))
     gastos_df = fetch_df("SELECT * FROM gastos WHERE fecha >= %s", (fecha_inicio,))
     costos_df = fetch_df("SELECT * FROM costos WHERE fecha >= %s", (fecha_inicio,))
     abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
     tiempos_df = fetch_df("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
     flujo_df = fetch_df("SELECT * FROM flujo_dinero WHERE 1=1")
+
 
     # 🔁 Acumulado antes del periodo
     ventas_antes = fetch_df("SELECT * FROM ventas WHERE fecha < %s", (fecha_inicio,))
