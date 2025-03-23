@@ -332,7 +332,11 @@ def generar_informe():
     costos_df = fetch_df("SELECT * FROM costos WHERE fecha >= %s", (fecha_inicio,))
     abonos_df = fetch_df("SELECT * FROM abonos WHERE fecha >= %s", (fecha_inicio,))
     tiempos_df = fetch_df("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
-    flujo_df = fetch_df("SELECT * FROM flujo_dinero WHERE 1=1")
+    
+    cursor.execute("SELECT * FROM flujo_dinero")
+    cols = [desc[0] for desc in cursor.description]
+    flujo_df = pd.DataFrame(cursor.fetchall(), columns=cols)
+
 
 
     # 🔁 Acumulado antes del periodo
