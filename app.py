@@ -402,7 +402,7 @@ def generar_informe():
             & (df_inv["Producto"].str.upper() != "GUANTES ALQUILER")
         ]["Valor Venta"].sum()
 
-        total_tiempos = tiempos_df["tiempo"].sum()
+        total_tiempos = tiempos_df["total"].sum()
 
         guantes = inventario.get("GUANTES ALQUILER", {"Salidas": 0, "Precio": 0})
         total_guantes = guantes["Salidas"] * guantes["Precio"]
