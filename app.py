@@ -354,22 +354,26 @@ def generar_informe():
     if not ids_cerrados:
         return jsonify({"error": "Ningún ID en ventas está cerrado (no activo) en el rango dado"}), 400
 
-    # 🔹 3. Construir la lista de sub-IDs para eventos_inventario
+    # 🔹 3. Cargar todos los IDs existentes de eventos_inventario
+    cursor.execute("SELECT id FROM eventos_inventario")
+    todos_los_ids_eventos = [row[0] for row in cursor.fetchall()]
+
+    # 🔹 4. Filtrar los que comienzan con alguno de los IDs cerrados
     eventos_ids = []
-    for num in ids_cerrados:
-        base_id = f"S{num}"
-        # Agregar S{num}, S{num}-1, S{num}-1P1
-        eventos_ids.append(base_id)
-        eventos_ids.append(base_id + "-1")
-        eventos_ids.append(base_id + "-1P1")
+    for eid in todos_los_ids_eventos:
+        base = eid.split("-")[0]  # De "S200-1P1" => "S200"
+        try:
+            num = int(base[1:])   # De "S200" => 200
+        except:
+            continue
+        if num in ids_cerrados:
+            eventos_ids.append(eid)
 
-    # 🔹 4. Cargar datos de inventario pero ahora 
-    #      en lugar de filtrar por fecha >=, filtramos SOLO esos sub-IDs
-    #      (y además mantenemos la fecha >= fecha_inicio)
-    #      => De la forma "id IN (...) AND fecha >= ..."
+    print("🧩 Sub-IDs válidos encontrados en eventos_inventario:", eventos_ids)
 
+    # 🔹 5. Cargar datos filtrando esos IDs + fecha
     if not eventos_ids:
-        return jsonify({"error": "No hay subIDs de eventos_inventario"}), 400
+        return jsonify({"error": "No hay IDs válidos para eventos_inventario"}), 400
 
     placeholders = ",".join(["%s"] * len(eventos_ids))
     query_inv = f"SELECT * FROM eventos_inventario WHERE id IN ({placeholders}) AND fecha >= %s"
@@ -382,6 +386,7 @@ def generar_informe():
     inv_cols = [desc[0] for desc in cursor.description]
     inv_rows = cursor.fetchall()
     inventario_df = pd.DataFrame(inv_rows, columns=inv_cols)
+    
     print("🔢 IDs recibidos del frontend:", list(range(base_inicio, base_fin + 1)))
     print("✅ IDs cerrados en 'ventas':", ids_cerrados)
     print("🧩 Sub-IDs generados para 'eventos_inventario':", eventos_ids)
