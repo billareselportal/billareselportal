@@ -382,6 +382,11 @@ def generar_informe():
     inv_cols = [desc[0] for desc in cursor.description]
     inv_rows = cursor.fetchall()
     inventario_df = pd.DataFrame(inv_rows, columns=inv_cols)
+    print("🔢 IDs recibidos del frontend:", list(range(base_inicio, base_fin + 1)))
+    print("✅ IDs cerrados en 'ventas':", ids_cerrados)
+    print("🧩 Sub-IDs generados para 'eventos_inventario':", eventos_ids)
+    print("📍 Primer ID eventos:", inventario_df['id'].iloc[0] if not inventario_df.empty else "N/A")
+    print("📍 Último ID eventos:", inventario_df['id'].iloc[-1] if not inventario_df.empty else "N/A")
 
     # 🔹 5. El resto lo dejas IGUAL que en tu función original:
 
