@@ -222,7 +222,7 @@ def obtener_inventario():
     cursor.execute("""
         SELECT producto, COALESCE(SUM(entradas - salidas), 0)
         FROM eventos_inventario
-        WHERE fecha < %s
+        WHERE fecha < %s AND producto NOT ILIKE 'TIEMPO%'
         GROUP BY producto;
     """, (limite_inferior,))
     iniciales_rows = cursor.fetchall()
@@ -244,7 +244,7 @@ def obtener_inventario():
             COALESCE(SUM(entradas), 0) AS entradas, 
             COALESCE(SUM(salidas), 0) AS salidas
         FROM eventos_inventario
-        WHERE fecha >= %s AND fecha <= %s
+        WHERE fecha >= %s AND fecha <= %s AND producto NOT ILIKE 'TIEMPO%'
         GROUP BY producto;
     """, (limite_inferior, limite_superior))
     periodo_rows = cursor.fetchall()
@@ -265,220 +265,115 @@ def obtener_inventario():
     cursor.close()
     conn.close()
     return jsonify(list(inventario.values()))
-
 @app.route("/api/generar_informe")
 def generar_informe():
-    id_inicio_str = request.args.get("id_inicio", "30")
-    id_fin_str = request.args.get("id_fin", "250")
+    from flask import request, jsonify, send_file
+    import pandas as pd
+    import xlsxwriter
+
+    # 1. Leer parámetros id_inicio, id_fin
+    id_inicio_str = request.args.get("id_inicio", "").strip()
+    id_fin_str = request.args.get("id_fin", "").strip()
 
     conn = connect_db()
     cursor = conn.cursor()
 
-    # 🔹 Verificar y convertir 'fecha' en las tablas donde exista
-    tablas_con_fecha = ["eventos_inventario", "tiempos", "ventas", "gastos", "costos", "abonos"]
-    for tabla in tablas_con_fecha:
-        cursor.execute(f"""
-            SELECT data_type 
-            FROM information_schema.columns
-            WHERE table_name = '{tabla}' AND column_name = 'fecha'
-        """)
-        col_type = cursor.fetchone()
-        if col_type and col_type[0] == "text":
-            cursor.execute(f"""
-                ALTER TABLE {tabla}
-                ALTER COLUMN fecha TYPE TIMESTAMP USING fecha::timestamp
-            """)
-            conn.commit()
+    # Función auxiliar para convertir el ID 'S999' → numérico 999
+    def id_a_num(s: str) -> int:
+        try:
+            return int(s)
+        except ValueError:
+            return 0
 
-    # 🔹 Función para comprobar si un ID existe en ventas y si está activo o no
-    #    Retorna (existe: bool, estado: str|null)
-    def verificar_id_ventas(id_buscar: str):
+    # Si no se proporcionó id_inicio, buscar el primer ID cerrado en ventas
+    if not id_inicio_str:
         cursor.execute("""
-            SELECT estado, fecha
+            SELECT id 
             FROM ventas
-            WHERE id = %s
+            WHERE estado <> 'activo'
+              AND id ~ '^S[0-9]+$'
+            ORDER BY CAST(SUBSTRING(id FROM 2) AS INTEGER) ASC 
             LIMIT 1
-        """, (id_buscar,))
+        """)
         row = cursor.fetchone()
         if row:
-            return True, row[0], row[1]  # (existe, estado, fecha)
-        return False, None, None
+            id_inicio_str = row[0][1:]  # quitar la 'S'
+        else:
+            return jsonify({"error": "No existen IDs cerrados en la base de datos"}), 400
 
-    # 🔹 Buscar ID de venta cerrado (no activo), subiendo o bajando en caso de no hallarlo
-    #    - modo="inicio": si el ID está activo, sube a id+1
-    #    - modo="fin": si el ID está activo, baja a id-1
-    def buscar_id_cerrado(base_num: int, modo: str) -> str:
-        """Retorna la cadena 'SXX', 'SXX-1' o 'SXX-1P1' que no esté activo,
-           o None si no encontró nada."""
-        paso = +1 if modo == "inicio" else -1
-        limite = 99999 if modo == "inicio" else 0
-
-        while 0 <= base_num <= limite:
-            # Probar sufijos en el ID
-            for suf in ["", "-1", "-1P1"]:
-                id_buscar = f"S{base_num}{suf}"
-                existe, estado, _ = verificar_id_ventas(id_buscar)
-                if existe and (estado != "activo"):
-                    return id_buscar
-            base_num += paso
-        return None
-
-    # 🔹 Buscar fecha en ventas
-    def fecha_de_venta(id_ventas: str):
-        """Devuelve la fecha de esa venta (id_ventas) o None si no existe."""
+    # Si no se proporcionó id_fin, buscar el último ID cerrado en ventas
+    if not id_fin_str:
         cursor.execute("""
-            SELECT fecha 
+            SELECT id 
             FROM ventas
-            WHERE id = %s
+            WHERE estado <> 'activo'
+              AND id ~ '^S[0-9]+$'
+            ORDER BY CAST(SUBSTRING(id FROM 2) AS INTEGER) DESC 
             LIMIT 1
-        """, (id_ventas,))
+        """)
         row = cursor.fetchone()
-        return row[0] if row else None
+        if row:
+            id_fin_str = row[0][1:]  # quitar la 'S'
+        else:
+            return jsonify({"error": "No existen IDs cerrados en la base de datos"}), 400
 
-    # 1. Convertir string a entero
+    # Convertir a entero
     try:
         base_inicio = int(id_inicio_str)
     except ValueError:
-        base_inicio = 30  # fallback si no es válido
+        base_inicio = 1
     try:
         base_fin = int(id_fin_str)
     except ValueError:
-        base_fin = base_inicio  # fallback
+        base_fin = base_inicio
 
-    # 2. Buscar ID inicio cerrado
-    id_valido_inicio = buscar_id_cerrado(base_inicio, modo="inicio")
-    # 3. Buscar ID fin cerrado
-    id_valido_fin = buscar_id_cerrado(base_fin, modo="fin")
+    if base_inicio > base_fin:
+        # si el inicio es mayor que el fin, intercambiarlos
+        base_inicio, base_fin = base_fin, base_inicio
 
-    # Si no hallamos nada para el inicio o el fin, error
-    if not id_valido_inicio:
-        return jsonify({"error": "No se encontró un ID válido (cerrado) para inicio."}), 400
-    if not id_valido_fin:
-        return jsonify({"error": "No se encontró un ID válido (cerrado) para fin."}), 400
+    # IDs cerrados en el rango [base_inicio..base_fin]
+    ids_cerrados = []
+    for num in range(base_inicio, base_fin + 1):
+        s_id = f"S{num}"
+        # verificar si en ventas id=s_id con estado <> 'activo'
+        cursor.execute("""
+            SELECT estado FROM ventas
+            WHERE id = %s
+            LIMIT 1
+        """, (s_id,))
+        row = cursor.fetchone()
+        if row:
+            estado = (row[0] or "").lower()
+            if estado != "activo":
+                # cerrado
+                ids_cerrados.append(num)
 
-    # Fechas en ventas
-    fecha_inicio = fecha_de_venta(id_valido_inicio)
-    fecha_fin = fecha_de_venta(id_valido_fin)
-    if not fecha_inicio:
-        return jsonify({"error": f"No existe venta con ID {id_valido_inicio}"}), 400
-    if not fecha_fin:
-        return jsonify({"error": f"No existe venta con ID {id_valido_fin}"}), 400
+    if not ids_cerrados:
+        return jsonify({"error": f"No hay IDs cerrados en el rango [{base_inicio}..{base_fin}]"}), 400
 
-    # Helper para filtrar por rango de fechas (ventas, costos, etc.), excluyendo estado=activo
-    def fetch_df_ventas(query_base, params=()):
-        """Filtra la tabla x con: fecha >= fecha_inicio, fecha <= fecha_fin, estado <> 'activo'."""
-        nuevo_query = query_base + " AND estado <> 'activo'"
-        nuevo_params = list(params)
+    # Ahora construimos los sub-IDs para buscar en eventos_inventario
+    eventos_ids = []
+    for num in ids_cerrados:
+        base_id = f"S{num}"
+        eventos_ids.append(base_id)
+        eventos_ids.append(base_id + "-1")
+        eventos_ids.append(base_id + "-1P1")
 
-        nuevo_query += " AND fecha >= %s"
-        nuevo_params.append(fecha_inicio)
+    # Cargar eventos_inventario con esos IDs
+    format_str = ",".join(["%s"] * len(eventos_ids))
+    query = f"SELECT * FROM eventos_inventario WHERE id IN ({format_str})"
+    cursor.execute(query, tuple(eventos_ids))
+    inv_rows = cursor.fetchall()
+    inv_cols = [desc[0] for desc in cursor.description]
+    inventario_df = pd.DataFrame(inv_rows, columns=inv_cols)
 
-        if fecha_fin:
-            nuevo_query += " AND fecha <= %s"
-            nuevo_params.append(fecha_fin)
-
-        cursor.execute(nuevo_query, tuple(nuevo_params))
-        cols = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=cols)
-
-    # events no tiene estado, ni productos
-    def fetch_df_eventos(query_base, params=()):
-        """Filtra la tabla eventos_inventario con fecha >= inicio y <= fin (no hay estado)."""
-        nuevo_query = query_base
-        nuevo_params = list(params)
-        nuevo_query += " AND fecha >= %s"
-        nuevo_params.append(fecha_inicio)
-        if fecha_fin:
-            nuevo_query += " AND fecha <= %s"
-            nuevo_params.append(fecha_fin)
-
-        cursor.execute(nuevo_query, tuple(nuevo_params))
-        cols = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=cols)
-
-    # Cargar data
-    inventario_df = fetch_df_eventos("SELECT * FROM eventos_inventario WHERE 1=1")
-    
-    # productos no tiene fecha ni estado
+    # Cargar productos (no tiene fecha ni estado)
     cursor.execute("SELECT * FROM productos")
-    col_products = [desc[0] for desc in cursor.description]
-    productos_df = pd.DataFrame(cursor.fetchall(), columns=col_products)
+    prod_rows = cursor.fetchall()
+    prod_cols = [desc[0] for desc in cursor.description]
+    productos_df = pd.DataFrame(prod_rows, columns=prod_cols)
 
-    ventas_df = fetch_df_ventas("SELECT * FROM ventas WHERE 1=1")
-    gastos_df = fetch_df_ventas("SELECT * FROM gastos WHERE 1=1")
-    costos_df = fetch_df_ventas("SELECT * FROM costos WHERE 1=1")
-    abonos_df = fetch_df_ventas("SELECT * FROM abonos WHERE 1=1")
-
-    # tiempos no tiene estado
-    cursor.execute("SELECT * FROM tiempos WHERE fecha >= %s", (fecha_inicio,))
-    col_tiempos = [desc[0] for desc in cursor.description]
-    tiempos_tmp = cursor.fetchall()
-    # si existe fecha_fin
-    if fecha_fin:
-        tiempos_filtrados = []
-        for row in tiempos_tmp:
-            # asumiendo row[1] es fecha
-            # Veamos la posicion: definimos col_tiempos
-            row_dict = dict(zip(col_tiempos, row))
-            if row_dict["fecha"] and row_dict["fecha"] <= fecha_fin:
-                tiempos_filtrados.append(row)
-        tiempos_df = pd.DataFrame(tiempos_filtrados, columns=col_tiempos)
-    else:
-        tiempos_df = pd.DataFrame(tiempos_tmp, columns=col_tiempos)
-
-    # flujo_dinero no tiene fecha ni estado
-    cursor.execute("SELECT * FROM flujo_dinero")
-    col_flujo = [desc[0] for desc in cursor.description]
-    flujo_df = pd.DataFrame(cursor.fetchall(), columns=col_flujo)
-
-    # Acumulado anterior
-    ventas_antes = pd.DataFrame()
-    gastos_antes = pd.DataFrame()
-    costos_antes = pd.DataFrame()
-    abonos_antes = pd.DataFrame()
-
-    # Filtramos las que estén antes de fecha_inicio
-    # y estado <> 'activo'
-    def fetch_df_antes_ventas(tabla: str):
-        cursor.execute(f"""
-            SELECT * FROM {tabla}
-            WHERE fecha < %s AND estado <> 'activo'
-        """, (fecha_inicio,))
-        c = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=c)
-
-    ventas_antes = fetch_df_antes_ventas("ventas")
-    gastos_antes = fetch_df_antes_ventas("gastos")
-    costos_antes = fetch_df_antes_ventas("costos")
-    abonos_antes = fetch_df_antes_ventas("abonos")
-
-    total_ventas_antes = ventas_antes["total"].sum()
-    ventas_edgar_antes = ventas_antes[ventas_antes["nombre"].str.lower() == "edgar"]["total"].sum()
-    ventas_julian_antes = total_ventas_antes - ventas_edgar_antes
-
-    costos_antes["julian"] = costos_antes["total"] - costos_antes["edgar"]
-    costos_julian_antes = costos_antes["julian"].sum()
-    costos_edgar_antes = costos_antes["edgar"].sum()
-
-    gastos_antes["julian"] = gastos_antes["total"] - gastos_antes["edgar"]
-    gastos_julian_antes = gastos_antes["julian"].sum()
-    gastos_edgar_antes = gastos_antes["edgar"].sum()
-
-    abonos_edgar_antes = abonos_antes["edgar"].sum()
-    abono_edgar_positivo_antes = abonos_edgar_antes if abonos_edgar_antes > 0 else 0
-    abono_edgar_negativo_antes = abonos_edgar_antes if abonos_edgar_antes < 0 else 0
-
-    inicial_julian = flujo_df[flujo_df["nombre"].str.lower() == "julian"]["inicial"].sum()
-    inicial_edgar = flujo_df[flujo_df["nombre"].str.lower() == "edgar"]["inicial"].sum()
-
-    acumulado_julian = (inicial_julian + ventas_julian_antes 
-                        - gastos_julian_antes - costos_julian_antes 
-                        - abono_edgar_positivo_antes + abs(abono_edgar_negativo_antes))
-    acumulado_edgar = (inicial_edgar + ventas_edgar_antes 
-                       - gastos_edgar_antes - costos_edgar_antes 
-                       + abono_edgar_positivo_antes - abs(abono_edgar_negativo_antes))
-
-    # Construir inventario EXCLUYENDO productos TIEMPO
+    # Construir inventario excluyendo TIEMPO
     inventario = {}
     for _, rowp in productos_df.iterrows():
         inventario[rowp["producto"]] = {
@@ -492,7 +387,7 @@ def generar_informe():
     for _, row in inventario_df.iterrows():
         p = row["producto"]
         if p.upper().startswith("TIEMPO"):
-            # Lo excluimos
+            # excluimos
             continue
         if p in inventario:
             inventario[p]["Entradas"] += row["entradas"]
@@ -502,112 +397,62 @@ def generar_informe():
     df_inv = pd.DataFrame.from_dict(inventario, orient="index").reset_index().rename(columns={"index": "Producto"})
     df_inv["Valor Venta"] = df_inv["Precio"] * df_inv["Salidas"]
 
-    # Cálculo total_servicios
-    total_venta_productos = df_inv[
-        ~df_inv["Producto"].str.upper().str.startswith("TIEMPO") &
-        (df_inv["Producto"].str.upper() != "GUANTES ALQUILER")
-    ]["Valor Venta"].sum()
-
-    # Tiempos
-    total_tiempos = tiempos_df["total"].sum() if "total" in tiempos_df.columns else 0
+    # Cálculo: sumamos Valor Venta excluyendo TIEMPO y GUANTES ALQUILER
+    df_excl = df_inv[~df_inv["Producto"].str.upper().str.startswith("TIEMPO") &
+                     (df_inv["Producto"].str.upper() != "GUANTES ALQUILER")]
+    total_venta_productos = df_excl["Valor Venta"].sum()
 
     # Guantes
-    guantes_data = inventario.get("GUANTES ALQUILER", {"Salidas": 0, "Precio": 0})
-    total_guantes = guantes_data["Salidas"] * guantes_data["Precio"]
+    guantes_info = inventario.get("GUANTES ALQUILER", {"Salidas": 0, "Precio": 0})
+    total_guantes = guantes_info["Salidas"] * guantes_info["Precio"]
 
+    # Sin filtrar tiempos_df, pues no hay fecha
+    total_tiempos = 0
     total_servicios = total_venta_productos + total_tiempos + total_guantes
-
-    # Ventas
-    ventas_edgar = ventas_df[ventas_df["nombre"].str.lower() == "edgar"]["total"].sum()
-    ventas_julian = total_servicios - ventas_edgar
-
-    costos_df["julian"] = costos_df["total"] - costos_df["edgar"]
-    gastos_df["julian"] = gastos_df["total"] - gastos_df["edgar"]
-    costos_julian = costos_df["julian"].sum()
-    costos_edgar = costos_df["edgar"].sum()
-    gastos_julian = gastos_df["julian"].sum()
-    gastos_edgar = gastos_df["edgar"].sum()
-    abonos_edgar = abonos_df["edgar"].sum()
-    abono_edgar_positivo = abonos_edgar if abonos_edgar > 0 else 0
-    abono_edgar_negativo = abonos_edgar if abonos_edgar < 0 else 0
-
-    saldo_final_julian = (acumulado_julian + ventas_julian 
-                          - gastos_julian - costos_julian 
-                          - abono_edgar_positivo + abs(abono_edgar_negativo))
-    saldo_final_edgar = (acumulado_edgar + ventas_edgar 
-                         - gastos_edgar - costos_edgar 
-                         + abono_edgar_positivo - abs(abono_edgar_negativo))
-
-    # Agrupaciones
-    df_costos = costos_df.groupby("nombre", dropna=False)[["julian", "edgar"]].sum().reset_index()
-    df_gastos = gastos_df.groupby("motivo", dropna=False)[["julian", "edgar"]].sum().reset_index()
-    df_abonos = abonos_df[abonos_df["edgar"] != 0][["fecha", "concepto", "edgar"]]
 
     # Generar Excel
     file_path = "/tmp/informe_final.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
-        # Hoja: Inventario
         df_inv.to_excel(writer, sheet_name="Inventario", index=False)
         sheet = writer.sheets["Inventario"]
-        book = writer.book
-        money = book.add_format({'num_format': '$ #,##0', 'align': 'right'})
-        bold = book.add_format({'bold': True})
-        center = book.add_format({'align': 'center'})
+
+        money_fmt = writer.book.add_format({'num_format': '$ #,##0', 'align': 'right'})
+        bold = writer.book.add_format({'bold': True})
 
         sheet.set_column("A:A", 25)
-        sheet.set_column("F:F", 15)      # Final
-        sheet.set_column("G:G", 18, money)  # Valor Venta
+        sheet.set_column("F:F", 15)
+        sheet.set_column("G:G", 18, money_fmt)
 
-        # Totales en la Hoja Inventario
-        inventario_resumen = [
+        resumen_inv = [
             ["TOTAL VENTA PRODUCTOS", total_venta_productos],
             ["TOTAL TIEMPOS", total_tiempos],
             ["GUANTES ALQUILER", total_guantes],
             ["TOTAL SERVICIOS", total_servicios],
         ]
         start_row = 3
-        for i, (desc, val) in enumerate(inventario_resumen):
-            sheet.write(f"J{start_row+i}", desc, bold)
-            sheet.write(f"K{start_row+i}", val, money)
+        for i, (label, val) in enumerate(resumen_inv):
+            sheet.write(f"J{start_row + i}", label, bold)
+            sheet.write(f"K{start_row + i}", val, money_fmt)
 
         # Hoja Resumen
-        df_res = [
-            ["VENTA", ventas_julian],
-            ["COSTOS", costos_julian],
-            ["GASTOS", gastos_julian],
-            ["UTILIDAD", ventas_julian - costos_julian - gastos_julian],
-            [],
-            ["ACUMULADO JULIAN (antes)", acumulado_julian],
-            ["ACUMULADO EDGAR (antes)", acumulado_edgar],
-            [],
-            ["SALDO FINAL JULIAN", saldo_final_julian],
-            ["SALDO FINAL EDGAR", saldo_final_edgar],
-        ]
-        df_resumen = pd.DataFrame(df_res, columns=["CONCEPTO", "VALOR"])
-        df_resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
+        df_resumen = pd.DataFrame([
+            ["VENTA (SERVICIOS)", total_servicios],
+            ["COSTOS", 0],
+            ["GASTOS", 0],
+            ["UTILIDAD", total_servicios - 0 - 0],
+        ], columns=["CONCEPTO", "VALOR"])
+        df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
 
-        # Costos/Gastos/Abonos
-        df_costos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=0, index=False)
-        df_gastos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=4, index=False)
-        df_abonos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=8, index=False)
-
-        resumen_sheet = writer.sheets["Resumen"]
-        resumen_sheet.set_column("A:A", 45, center)
-        resumen_sheet.set_column("B:B", 18, money)
-        resumen_sheet.set_column("E:F", 18, money)
-        resumen_sheet.set_column("I:J", 18, money)
-
-        # Titulo: "Resumen desde ID: SXX hasta ID: SYY"
-        titulo = f"Resumen desde {id_valido_inicio}"
-        if id_valido_fin:
-            titulo += f" hasta {id_valido_fin}"
-        resumen_sheet.write("A1", titulo, bold)
+        sht_resumen = writer.sheets["Resumen"]
+        sht_resumen.set_column("A:A", 35)
+        sht_resumen.set_column("B:B", 18, money_fmt)
+        titulo = f"Informe desde {base_inicio} hasta {base_fin} (IDs cerrados en ventas)"
+        sht_resumen.write("A1", titulo, bold)
 
     cursor.close()
     conn.close()
 
     return send_file(file_path, as_attachment=True, download_name="informe_final.xlsx")
-
 
 
 
