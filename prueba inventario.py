@@ -1,24 +1,48 @@
-import psycopg2
-import pandas as pd
+import sqlite3
 
-# Datos de conexión
-DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
+def verificar_totales_facturas():
+    db_path = r"D:\proyectos terminados\SISTEMA PORTAL - copia\portal.db"
+    print(f"🟡 Conectando a la base de datos: {db_path}")
 
-try:
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        print("✅ Conexión exitosa.")
 
-    cursor.execute("""
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'public';
-    """)
-    tablas = cursor.fetchall()
-    df = pd.DataFrame(tablas, columns=["Nombre de Tabla"])
-    print(df.to_string(index=False))
+        cursor.execute("SELECT factura_no, total FROM ventas WHERE factura_no IS NOT NULL")
+        facturas = cursor.fetchall()
+        print(f"📦 Se encontraron {len(facturas)} facturas para verificar.\n")
 
-    cursor.close()
-    conn.close()
+        facturas_con_error = []
 
-except Exception as e:
-    print("❌ Error:", e)
+        for factura_no, total_venta in facturas:
+            cursor.execute("""
+                SELECT SUM(costo) 
+                FROM eventos_inventario 
+                WHERE factura_no = ?
+            """, (factura_no,))
+            resultado = cursor.fetchone()
+            total_eventos = resultado[0] if resultado[0] is not None else 0
+
+            diferencia = round(total_venta - total_eventos, 2)
+
+            if round(diferencia, 2) != 0:
+                facturas_con_error.append((factura_no, total_venta, total_eventos, diferencia))
+
+        if not facturas_con_error:
+            print("✅ Todas las facturas coinciden correctamente.")
+        else:
+            print(f"⚠️ Se encontraron {len(facturas_con_error)} facturas con diferencias:\n")
+            for factura_no, total_venta, total_eventos, diferencia in facturas_con_error:
+                print(f"   - Factura: {factura_no}")
+                print(f"     Total en ventas:           {total_venta}")
+                print(f"     Total en eventos_inventario: {total_eventos}")
+                print(f"     Diferencia:                {diferencia}\n")
+
+        conn.close()
+
+    except Exception as e:
+        print(f"❗ Error al conectar o procesar la base de datos: {e}")
+
+# Ejecutar
+verificar_totales_facturas()
