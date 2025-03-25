@@ -264,9 +264,42 @@ def obtener_inventario():
 
     print(f"[DEBUG] Inventario final calculado correctamente")
 
+    # Calcular rotación semanal pasada
+    fecha_hace_una_semana = ahora_local - timedelta(days=7)
+    cursor.execute("""
+        SELECT producto, SUM(salidas)
+        FROM eventos_inventario
+        WHERE fecha >= %s AND fecha < %s
+        GROUP BY producto;
+    """, (fecha_hace_una_semana, ahora_local))
+    rotacion_semanal = dict(cursor.fetchall())
+
+    # Agregar alerta por nivel bajo
+    for item in inventario.values():
+        producto = item["producto"]
+        total_salidas_semana = rotacion_semanal.get(producto, 0)
+        promedio_diario = total_salidas_semana / 7 if total_salidas_semana > 0 else 0
+
+        minimo_rojo = promedio_diario * 1.5
+        minimo_naranja = promedio_diario * 3
+
+        item["rotacion_semanal"] = round(total_salidas_semana, 2)
+        item["promedio_diario"] = round(promedio_diario, 2)
+        item["minimo_rojo"] = round(minimo_rojo, 2)
+        item["minimo_naranja"] = round(minimo_naranja, 2)
+
+        final = item["final"]
+        if final < minimo_rojo:
+            item["alerta"] = "critico"
+        elif final < minimo_naranja:
+            item["alerta"] = "bajo"
+        else:
+            item["alerta"] = "ok"
+
     cursor.close()
     conn.close()
-    # 🔹 8️⃣ Filtrar productos que comienzan con "TIEMPO"
+
+    # Filtrar productos que empiezan con "TIEMPO"
     inventario_filtrado = [
         item for item in inventario.values()
         if not item["producto"].strip().upper().startswith("TIEMPO")
