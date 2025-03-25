@@ -152,12 +152,14 @@
         });
 
         function enviarSugerencia() {
-            const mensaje = document.getElementById("sugerencias").value.trim();
+            const textarea = document.getElementById("sugerencias");
+            const mensaje = textarea.value.trim();
+        
             if (!mensaje) {
                 alert("Por favor escribe un mensaje antes de enviar.");
                 return;
             }
-
+        
             fetch("/enviar_mensaje", {
                 method: "POST",
                 headers: {
@@ -166,9 +168,16 @@
                 body: JSON.stringify({ mensaje, contacto })
             })
             .then(res => res.json())
-            .then(data => alert(data.mensaje))
+            .then(data => {
+                alert(data.mensaje);
+                if (data.status === "ok") {
+                    textarea.value = "";  // 🔹 Limpiar el mensaje si fue exitoso
+                    contacto = '';        // 🔹 También reiniciar los datos de contacto si quieres
+                }
+            })
             .catch(err => alert("Error al enviar: " + err));
         }
+        
 
         function buscarCodigo() {
             const codigo = document.getElementById("codigo").value;
