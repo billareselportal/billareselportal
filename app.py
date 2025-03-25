@@ -5,6 +5,8 @@ from funciones import buscar_por_codigo
 from funciones import obtener_lista_precios
 import pytz
 import pandas as pd
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
@@ -571,7 +573,37 @@ def generar_informe():
     conn.close()
     return send_file(file_path, as_attachment=True, download_name="informe_final.xlsx")
 
+@app.route('/enviar_mensaje', methods=['POST'])
+def enviar_mensaje():
+    data = request.json
+    mensaje = data.get('mensaje', '')
+    contacto = data.get('contacto', '')
 
+    if not mensaje.strip():
+        return jsonify({"status": "error", "mensaje": "El mensaje está vacío"}), 400
+
+    cuerpo = f"{mensaje}\n\n---\nContacto: {contacto if contacto else 'Anónimo'}"
+
+    try:
+        remitente = 'julianaristi83@gmail.com'
+        destinatario = 'julianaristi83@hotmail.com'
+        asunto = "Mensaje El Portal"
+
+        msg = MIMEText(cuerpo)
+        msg['Subject'] = asunto
+        msg['From'] = remitente
+        msg['To'] = destinatario
+
+        servidor = smtplib.SMTP('smtp.gmail.com', 587)
+        servidor.starttls()
+        servidor.login(remitente, 'jeld qgjb lrpl nvyz')
+        servidor.sendmail(remitente, [destinatario], msg.as_string())
+        servidor.quit()
+
+        return jsonify({"status": "ok", "mensaje": "¡Gracias por comunicarte con nosotros!"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "mensaje": f"Error al enviar el mensaje: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

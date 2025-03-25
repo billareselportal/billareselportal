@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -77,14 +78,13 @@
             resize: none;
         }
 
-        /* 🔽 Estilos para el botón de inventario (más discreto) */
         .hidden-section {
             margin-top: 40px;
             text-align: center;
         }
 
         .hidden-button {
-            background-color: rgba(255, 204, 0, 0.8); /* Color más tenue */
+            background-color: rgba(255, 204, 0, 0.8);
             padding: 8px 15px;
             font-size: 14px;
             border-radius: 5px;
@@ -116,52 +116,83 @@
     <div class="container">
         <h1>Bienvenido</h1>
 
-        <!-- Sección de búsqueda con el nuevo botón "Lista de Precios" -->
         <div class="search-section">
             <input type="text" id="codigo" placeholder="Ingrese su código">
             <button class="button" onclick="buscarCodigo()">Buscar</button>
             <button class="button" onclick="irListaPrecios()">Lista de Precios</button>
         </div>
 
-        <!-- Sección de sugerencias -->
         <div class="suggestion-section">
             <label for="sugerencias">Sugerencias:</label>
             <textarea id="sugerencias" placeholder="Déjanos tu opinión..."></textarea>
             <br>
-            <button class="button">Enviar</button>
+            <button class="button" onclick="enviarSugerencia()">Enviar</button>
         </div>
 
-        <!-- 🔽 Sección más oculta para propietarios -->
         <div class="hidden-section">
             <button class="hidden-button" onclick="pedirContrasena()">Ver Inventario</button>
         </div>
     </div>
 
     <script>
+        let contacto = '';
+
+        document.getElementById('sugerencias').addEventListener('focus', () => {
+            if (!contacto) {
+                const deseaResponder = confirm("Gracias por querer comunicarte con nosotros.\n\n¿Deseas recibir respuesta? Puedes dejar tus datos.\n\nPresiona 'Aceptar' para dejar tus datos o 'Cancelar' para continuar anónimo.");
+                if (deseaResponder) {
+                    const nombre = prompt("Tu nombre:");
+                    const correo = prompt("Tu correo:");
+                    const telefono = prompt("Tu número de teléfono:");
+                    contacto = `Nombre: ${nombre || 'N/A'}\nCorreo: ${correo || 'N/A'}\nTeléfono: ${telefono || 'N/A'}`;
+                } else {
+                    contacto = "Anónimo";
+                }
+            }
+        });
+
+        function enviarSugerencia() {
+            const mensaje = document.getElementById("sugerencias").value.trim();
+            if (!mensaje) {
+                alert("Por favor escribe un mensaje antes de enviar.");
+                return;
+            }
+
+            fetch("/enviar_mensaje", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ mensaje, contacto })
+            })
+            .then(res => res.json())
+            .then(data => alert(data.mensaje))
+            .catch(err => alert("Error al enviar: " + err));
+        }
+
         function buscarCodigo() {
             const codigo = document.getElementById("codigo").value;
             if (!codigo) {
                 alert("Ingrese un código");
                 return;
             }
-            
-            // Crear un formulario y enviarlo como POST
+
             const form = document.createElement("form");
             form.method = "POST";
             form.action = "/resultado";
-    
+
             const input = document.createElement("input");
             input.type = "hidden";
             input.name = "codigo";
             input.value = codigo;
-            
+
             form.appendChild(input);
             document.body.appendChild(form);
             form.submit();
         }
 
         function irListaPrecios() {
-            window.location.href = "/lista_precios";  // Redirige a la lista de precios
+            window.location.href = "/lista_precios";
         }
 
         function pedirContrasena() {
@@ -173,7 +204,5 @@
             }
         }
     </script>
-    
 </body>
 </html>
-
