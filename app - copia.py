@@ -335,7 +335,6 @@ def generar_informe():
 
     # Esta parte se mantiene igual: se busca la fecha_inicio, fecha_fin en la tabla eventos_inventario
     # a partir de 'id_inicio' y 'id_fin'...
-    # Obtener fecha de inicio y fin
     def buscar_fecha_por_id(base_id):
         for sufijo in ["", "-1", "-1P1"]:
             id_buscar = f"S{base_id}{sufijo}"
@@ -349,35 +348,11 @@ def generar_informe():
     fecha_fin = None
     if id_fin_str:
         _, fecha_val = buscar_fecha_por_id(id_fin_str)
-        fecha_fin = fecha_val
+        fecha_fin = fecha_val  # podría ser None si no existe
 
     if not fecha_inicio:
         return jsonify({"error": "No se encontró un ID válido"}), 400
-    
-        # Obtener eventos_inventario y ventas de los IDs incluidos
-    def obtener_datos_tabla(tabla, ids):
-        placeholders = ",".join(["%s"] * len(ids))
-        query = f"SELECT * FROM {tabla} WHERE id IN ({placeholders})"
-        cursor.execute(query, tuple(ids))
-        columnas = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=columnas)
 
-    # Filtrar IDs cerrados
-    ids_cerrados = []
-    for num in range(int(id_inicio_str), int(id_fin_str) + 1):
-        s_id = f"S{num}"
-        cursor.execute("SELECT estado FROM ventas WHERE id = %s LIMIT 1", (s_id,))
-        row = cursor.fetchone()
-        if row and (row[0] or "").lower() != "activo":
-            ids_cerrados.append(s_id)
-
-    if not ids_cerrados:
-        return jsonify({"error": "Ningún ID en ventas está cerrado (no activo) en el rango dado"}), 400
-
-    # Obtener datos de las tablas
-    eventos_df = obtener_datos_tabla("eventos_inventario", ids_cerrados)
-    ventas_df = obtener_datos_tabla("ventas", ids_cerrados)
-    
     # Helper con rango de fechas
     def fetch_df(query_base, params=()):
         if fecha_fin:
@@ -599,11 +574,7 @@ def generar_informe():
         for i, (concepto, valor) in enumerate(resumen_inv):
             sheet.write(f"J{start_row + i}", concepto, bold)
             sheet.write(f"K{start_row + i}", valor, money_fmt)
-        # Agregar hoja de eventos_inventario
-        eventos_df.to_excel(writer, sheet_name="Eventos Inventario", index=False)
 
-        # Agregar hoja de ventas
-        ventas_df.to_excel(writer, sheet_name="Ventas", index=False)
         # Hoja Resumen
         resumen_data = [
             ["VENTA", ventas_total],  # = total_servicios
