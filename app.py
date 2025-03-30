@@ -354,7 +354,7 @@ def generar_informe():
     if not fecha_inicio:
         return jsonify({"error": "No se encontró un ID válido"}), 400
     
-        # Obtener eventos_inventario y ventas de los IDs incluidos
+    # Obtener ventas directamente
     def obtener_datos_tabla(tabla, ids):
         placeholders = ",".join(["%s"] * len(ids))
         query = f"SELECT * FROM {tabla} WHERE id IN ({placeholders})"
@@ -362,21 +362,26 @@ def generar_informe():
         columnas = [desc[0] for desc in cursor.description]
         return pd.DataFrame(cursor.fetchall(), columns=columnas)
 
-    # Filtrar IDs cerrados
-    ids_cerrados = []
-    for num in range(int(id_inicio_str), int(id_fin_str) + 1):
-        s_id = f"S{num}"
-        cursor.execute("SELECT estado FROM ventas WHERE id = %s LIMIT 1", (s_id,))
-        row = cursor.fetchone()
-        if row and (row[0] or "").lower() != "activo":
-            ids_cerrados.append(s_id)
-
-    if not ids_cerrados:
-        return jsonify({"error": "Ningún ID en ventas está cerrado (no activo) en el rango dado"}), 400
-
-    # Obtener datos de las tablas
-    eventos_df = obtener_datos_tabla("eventos_inventario", ids_cerrados)
     ventas_df = obtener_datos_tabla("ventas", ids_cerrados)
+
+    # Obtener eventos_inventario usando los IDs cerrados (incluyendo sub-IDs)
+    if ids_cerrados:
+        placeholders = ' OR '.join([f"id LIKE '{id_cerrado}%'" for id_cerrado in ids_cerrados])
+        query_eventos = f"""
+            SELECT * FROM eventos_inventario 
+            WHERE {placeholders}
+        """
+        cursor.execute(query_eventos)
+        eventos_cols = [desc[0] for desc in cursor.description]
+        eventos_rows = cursor.fetchall()
+        eventos_df = pd.DataFrame(eventos_rows, columns=eventos_cols)
+
+        if eventos_df.empty:
+            print("⚠️ No se encontraron eventos en la tabla eventos_inventario para los IDs cerrados.")
+    else:
+        eventos_df = pd.DataFrame()
+        print("⚠️ No hay IDs cerrados para buscar en eventos_inventario.")
+
     
     # Helper con rango de fechas
     def fetch_df(query_base, params=()):
