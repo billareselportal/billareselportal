@@ -356,31 +356,45 @@ def generar_informe():
     
     # Obtener ventas directamente
     def obtener_datos_tabla(tabla, ids):
-        placeholders = ",".join(["%s"] * len(ids))
-        query = f"SELECT * FROM {tabla} WHERE id IN ({placeholders})"
-        cursor.execute(query, tuple(ids))
-        columnas = [desc[0] for desc in cursor.description]
-        return pd.DataFrame(cursor.fetchall(), columns=columnas)
+        if not ids:
+            print(f"⚠️ No hay IDs disponibles para obtener datos de {tabla}.")
+            return pd.DataFrame()  # Retorna un DataFrame vacío
 
+        try:
+            placeholders = ",".join(["%s"] * len(ids))
+            query = f"SELECT * FROM {tabla} WHERE id IN ({placeholders})"
+            cursor.execute(query, tuple(ids))
+            columnas = [desc[0] for desc in cursor.description]
+            return pd.DataFrame(cursor.fetchall(), columns=columnas)
+        except Exception as e:
+            print(f"❗ Error al obtener datos de {tabla}: {e}")
+            return pd.DataFrame()
+
+    # Obtener ventas cerradas
     ventas_df = obtener_datos_tabla("ventas", ids_cerrados)
 
     # Obtener eventos_inventario usando los IDs cerrados (incluyendo sub-IDs)
     if ids_cerrados:
-        placeholders = ' OR '.join([f"id LIKE '{id_cerrado}%'" for id_cerrado in ids_cerrados])
-        query_eventos = f"""
-            SELECT * FROM eventos_inventario 
-            WHERE {placeholders}
-        """
-        cursor.execute(query_eventos)
-        eventos_cols = [desc[0] for desc in cursor.description]
-        eventos_rows = cursor.fetchall()
-        eventos_df = pd.DataFrame(eventos_rows, columns=eventos_cols)
-
-        if eventos_df.empty:
-            print("⚠️ No se encontraron eventos en la tabla eventos_inventario para los IDs cerrados.")
+        try:
+            placeholders = ' OR '.join([f"id LIKE '{id_cerrado}%'" for id_cerrado in ids_cerrados])
+            query_eventos = f"SELECT * FROM eventos_inventario WHERE {placeholders}"
+            cursor.execute(query_eventos)
+            eventos_cols = [desc[0] for desc in cursor.description]
+            eventos_rows = cursor.fetchall()
+            
+            if eventos_rows:
+                eventos_df = pd.DataFrame(eventos_rows, columns=eventos_cols)
+                print(f"✅ Se encontraron {len(eventos_rows)} eventos en la tabla eventos_inventario.")
+            else:
+                eventos_df = pd.DataFrame()
+                print("⚠️ No se encontraron eventos en la tabla eventos_inventario para los IDs cerrados.")
+        except Exception as e:
+            eventos_df = pd.DataFrame()
+            print(f"❗ Error al obtener eventos_inventario: {e}")
     else:
         eventos_df = pd.DataFrame()
         print("⚠️ No hay IDs cerrados para buscar en eventos_inventario.")
+
 
     
     # Helper con rango de fechas
@@ -578,10 +592,13 @@ def generar_informe():
     df_gastos = gastos_df.groupby("motivo")[["julian", "edgar"]].sum().reset_index()
     df_abonos = abonos_df[abonos_df["edgar"] != 0][["fecha", "concepto", "edgar"]]
 
-    # ---------- Exportar a Excel (igual) ----------
+    # ---------- Exportar a Excel (actualizado) ----------
     import xlsxwriter
+
     file_path = "/tmp/informe_final.xlsx"
     with pd.ExcelWriter(file_path, engine="xlsxwriter") as writer:
+        
+        # Hoja Inventario
         df_inv.to_excel(writer, sheet_name="Inventario", index=False)
         sheet = writer.sheets["Inventario"]
         book = writer.book
@@ -604,14 +621,47 @@ def generar_informe():
         for i, (concepto, valor) in enumerate(resumen_inv):
             sheet.write(f"J{start_row + i}", concepto, bold)
             sheet.write(f"K{start_row + i}", valor, money_fmt)
-        # Agregar hoja de eventos_inventario
-        eventos_df.to_excel(writer, sheet_name="Eventos Inventario", index=False)
 
-        # Agregar hoja de ventas
-        ventas_df.to_excel(writer, sheet_name="Ventas", index=False)
+        # Hoja de Eventos Inventario
+        if not eventos_df.empty:
+            eventos_df.to_excel(writer, sheet_name="Eventos Inventario", index=False)
+        else:
+            eventos_vacios_df = pd.DataFrame([["No se encontraron eventos para los IDs cerrados."]], columns=["Mensaje"])
+            eventos_vacios_df.to_excel(writer, sheet_name="Eventos Inventario", index=False)
+
+        # Hoja de Ventas Cerradas
+        if not ventas_df.empty:
+            ventas_df.to_excel(writer, sheet_name="Ventas", index=False)
+        else:
+            ventas_vacias_df = pd.DataFrame([["No se encontraron ventas cerradas."]], columns=["Mensaje"])
+            ventas_vacias_df.to_excel(writer, sheet_name="Ventas", index=False)
+
+        # Obtener Ventas Activas
+        cursor.execute("SELECT * FROM ventas WHERE estado = 'activo'")
+        ventas_activas_cols = [desc[0] for desc in cursor.description]
+        ventas_activas_df = pd.DataFrame(cursor.fetchall(), columns=ventas_activas_cols)
+
+        # Agregar hoja de Ventas Activas
+        if not ventas_activas_df.empty:
+            ventas_activas_df.to_excel(writer, sheet_name="Ventas Activas", index=False)
+        else:
+            ventas_activas_vacias_df = pd.DataFrame([["No hay ventas activas."]], columns=["Mensaje"])
+            ventas_activas_vacias_df.to_excel(writer, sheet_name="Ventas Activas", index=False)
+
+        # Agregar hoja de Eventos Activos
+        cursor.execute("SELECT * FROM eventos_inventario WHERE id LIKE ANY (ARRAY[%s])", ([f"{id}%" for id in ventas_activas_df['id'].tolist()]))
+        eventos_activos_cols = [desc[0] for desc in cursor.description]
+        eventos_activos_df = pd.DataFrame(cursor.fetchall(), columns=eventos_activos_cols)
+
+        if not eventos_activos_df.empty:
+            eventos_activos_df.to_excel(writer, sheet_name="Eventos Activos", index=False)
+        else:
+            eventos_activos_vacios_df = pd.DataFrame([["No hay eventos relacionados con ventas activas."]], columns=["Mensaje"])
+            eventos_activos_vacios_df.to_excel(writer, sheet_name="Eventos Activos", index=False)
+
         # Hoja Resumen
         resumen_data = [
-            ["VENTA", ventas_total],  # = total_servicios
+            ["VENTA", ventas_total],  
             ["COSTOS", costos_julian],
             ["GASTOS", gastos_julian],
             ["UTILIDAD", ventas_total - costos_julian - gastos_julian],
@@ -625,10 +675,12 @@ def generar_informe():
         df_resumen = pd.DataFrame(resumen_data, columns=["CONCEPTO", "VALOR"])
         df_resumen.to_excel(writer, sheet_name="Resumen", startrow=1, index=False)
 
+        # Agregar Datos Adicionales
         df_costos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=0, index=False)
         df_gastos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=4, index=False)
         df_abonos.to_excel(writer, sheet_name="Resumen", startrow=14, startcol=8, index=False)
 
+        # Formato de la Hoja de Resumen
         sht_resumen = writer.sheets["Resumen"]
         sht_resumen.set_column("A:A", 35, center)
         sht_resumen.set_column("B:B", 18, money_fmt)
@@ -638,7 +690,10 @@ def generar_informe():
 
     cursor.close()
     conn.close()
+
+    # Descargar el archivo Excel
     return send_file(file_path, as_attachment=True, download_name="informe_final.xlsx")
+
 
 @app.route('/enviar_mensaje', methods=['POST'])
 def enviar_mensaje():
