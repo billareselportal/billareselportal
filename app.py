@@ -418,8 +418,7 @@ def generar_informe():
     # -------------------------------------------------------------------------
     # Obtener ventas "cerradas" (estado != "activo"), según los IDs hallados
     # -------------------------------------------------------------------------
-    ventas_df = obtener_datos_tabla("ventas", ids_cerrados=[f"S{x}" for x in ids_cerrados])
-    
+    ventas_df = obtener_datos_tabla("ventas", [f"S{x}" for x in ids_cerrados])    
     # -------------------------------------------------------------------------
     # 3. Cargar todos los IDs de eventos_inventario y filtrar sub-IDs
     #    que correspondan a los IDs cerrados
