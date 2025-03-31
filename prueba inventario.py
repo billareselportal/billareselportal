@@ -1,48 +1,41 @@
-import sqlite3
+import psycopg2
 
-def verificar_totales_facturas():
-    db_path = r"D:\proyectos terminados\SISTEMA PORTAL - copia\portal.db"
-    print(f"🟡 Conectando a la base de datos: {db_path}")
+def listar_tablas_postgres():
+    # URL de conexión a PostgreSQL en Render
+    postgres_url = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
+
+    print("🟢 Iniciando conexión a PostgreSQL...")
 
     try:
-        conn = sqlite3.connect(db_path)
+        # Conectar a PostgreSQL
+        conn = psycopg2.connect(postgres_url)
+        print("✅ Conexión exitosa a PostgreSQL.")
         cursor = conn.cursor()
-        print("✅ Conexión exitosa.")
 
-        cursor.execute("SELECT factura_no, total FROM ventas WHERE factura_no IS NOT NULL")
-        facturas = cursor.fetchall()
-        print(f"📦 Se encontraron {len(facturas)} facturas para verificar.\n")
+        # Obtener todas las tablas del esquema 'public'
+        print("🟢 Consultando tablas en el esquema 'public'...")
+        cursor.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            ORDER BY table_name;
+        """)
+        tablas = cursor.fetchall()
 
-        facturas_con_error = []
-
-        for factura_no, total_venta in facturas:
-            cursor.execute("""
-                SELECT SUM(costo) 
-                FROM eventos_inventario 
-                WHERE factura_no = ?
-            """, (factura_no,))
-            resultado = cursor.fetchone()
-            total_eventos = resultado[0] if resultado[0] is not None else 0
-
-            diferencia = round(total_venta - total_eventos, 2)
-
-            if round(diferencia, 2) != 0:
-                facturas_con_error.append((factura_no, total_venta, total_eventos, diferencia))
-
-        if not facturas_con_error:
-            print("✅ Todas las facturas coinciden correctamente.")
+        if not tablas:
+            print("🚫 No hay tablas en el esquema 'public'.")
         else:
-            print(f"⚠️ Se encontraron {len(facturas_con_error)} facturas con diferencias:\n")
-            for factura_no, total_venta, total_eventos, diferencia in facturas_con_error:
-                print(f"   - Factura: {factura_no}")
-                print(f"     Total en ventas:           {total_venta}")
-                print(f"     Total en eventos_inventario: {total_eventos}")
-                print(f"     Diferencia:                {diferencia}\n")
-
-        conn.close()
+            print("📋 Tablas en el esquema 'public':")
+            for tabla in tablas:
+                print(f"- {tabla[0]}")
 
     except Exception as e:
-        print(f"❗ Error al conectar o procesar la base de datos: {e}")
+        print(f"❌ Error al conectar o consultar PostgreSQL: {e}")
 
-# Ejecutar
-verificar_totales_facturas()
+    finally:
+        if 'conn' in locals():
+            cursor.close()
+            conn.close()
+            print("🔒 Conexión cerrada.")
+
+listar_tablas_postgres()
