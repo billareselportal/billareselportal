@@ -287,6 +287,7 @@
                 </div>
             {% endif %}
 
+
             <a class="back-button" href="/">Volver</a>
         </div>
     </div>
@@ -311,7 +312,7 @@
         }
 
         function loadVideo() {
-            videoPlayer.src = "http://localhost:8800/" + videos[currentIndex];
+            videoPlayer.src = videos[currentIndex];  // ✅ Aquí ya no uses localhost
             videoPlayer.play();
         }
 
@@ -328,5 +329,6 @@
             videoPlayer.style.transform = "scale(1)";
         }
     </script>
+
 </body>
 </html>
