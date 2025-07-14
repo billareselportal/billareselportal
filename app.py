@@ -9,6 +9,7 @@ import pandas as pd
 import smtplib
 from email.mime.text import MIMEText
 import os
+import socket
 
 # Ruta absoluta a la carpeta actual donde está app.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,21 +25,37 @@ app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpet
 # ✅ URL de conexión a PostgreSQL en Render
 DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
 
+def obtener_ip_local():
+    """Devuelve la IP local de la máquina actual (para acceso desde otros dispositivos en red)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))  # Google DNS como destino dummy
+        ip_local = s.getsockname()[0]
+        s.close()
+        return ip_local
+    except Exception as e:
+        print(f"⚠ No se pudo obtener la IP local: {e}")
+        return "localhost"
+
 def buscar_videos_por_factura(factura_no):
+    if not os.path.exists(RUTA_VIDEOS):
+        print("⚠ Carpeta de videos no encontrada:", RUTA_VIDEOS)
+        return []
+
+    ip_local = obtener_ip_local()
+    puerto = 8800
     videos_encontrados = []
 
     for archivo in os.listdir(RUTA_VIDEOS):
-        if factura_no in archivo and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
-            # Extraer la fecha del nombre del archivo: busca "_20250713_175549"
+        if factura_no.lower() in archivo.lower() and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
             match = re.search(r'_(\d{8}_\d{6})', archivo)
             if match:
                 fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
-                ruta = f"/videos/{archivo}"
-                videos_encontrados.append((fecha_hora, ruta))
+                url_video = f"http://{ip_local}:{puerto}/{archivo}"
+                videos_encontrados.append((fecha_hora, url_video))
 
-    # Ordenar por la fecha extraída del nombre
-    videos_ordenados = [ruta for fecha, ruta in sorted(videos_encontrados)]
-
+    # Ordenar cronológicamente y devolver solo URLs
+    videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
     return videos_ordenados
 
 def connect_db():
