@@ -17,8 +17,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Ruta absoluta a la carpeta de proyectos (subir dos niveles)
 PROYECTO_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
 
-# Ruta final a la carpeta de videos
-RUTA_VIDEOS = os.path.join(PROYECTO_DIR, "videos")
+# Ruta final a la carpeta de videos (correcta según estructura real)
+RUTA_VIDEOS = os.path.abspath(os.path.join(BASE_DIR, "..", "videos"))
 
 app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpeta de plantillas
 
@@ -32,14 +32,17 @@ def obtener_ip_local():
         s.connect(("8.8.8.8", 80))  # Google DNS como destino dummy
         ip_local = s.getsockname()[0]
         s.close()
+        print(f"🌐 IP local detectada: {ip_local}")
         return ip_local
     except Exception as e:
         print(f"⚠ No se pudo obtener la IP local: {e}")
         return "localhost"
 
+
 def buscar_videos_por_factura(factura_no):
+    print(f"🔍 Buscando videos para factura: {factura_no}")
     if not os.path.exists(RUTA_VIDEOS):
-        print("⚠ Carpeta de videos no encontrada:", RUTA_VIDEOS)
+        print(f"❌ Carpeta de videos no encontrada: {RUTA_VIDEOS}")
         return []
 
     ip_local = obtener_ip_local()
@@ -47,15 +50,22 @@ def buscar_videos_por_factura(factura_no):
     videos_encontrados = []
 
     for archivo in os.listdir(RUTA_VIDEOS):
+        print(f"📦 Evaluando archivo: {archivo}")
         if factura_no.lower() in archivo.lower() and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
             match = re.search(r'_(\d{8}_\d{6})', archivo)
             if match:
-                fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
-                url_video = f"http://{ip_local}:{puerto}/{archivo}"
-                videos_encontrados.append((fecha_hora, url_video))
+                try:
+                    fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
+                    url_video = f"http://{ip_local}:{puerto}/{archivo}"
+                    videos_encontrados.append((fecha_hora, url_video))
+                    print(f"✅ Video agregado: {url_video}")
+                except Exception as e:
+                    print(f"⚠ Error procesando fecha del archivo {archivo}: {e}")
+            else:
+                print(f"⚠ No se encontró timestamp válido en: {archivo}")
 
-    # Ordenar cronológicamente y devolver solo URLs
     videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
+    print(f"🎬 Total videos encontrados: {len(videos_ordenados)}")
     return videos_ordenados
 
 def connect_db():
