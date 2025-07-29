@@ -110,7 +110,7 @@ def resultado():
     if not factura_result:
         print(f"❌ No se encontró la factura para el código {codigo}")
         conn.close()
-        return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.")
+        return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.", lista_videos=[])
 
     factura_no = factura_result[0]
     print(f"✅ Factura encontrada para código {codigo}: {factura_no}")
