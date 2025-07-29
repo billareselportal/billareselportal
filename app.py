@@ -26,21 +26,15 @@ app = Flask(__name__, template_folder='templates')  # Asegurar que use la carpet
 DATABASE_URL = "postgresql://billares_el_portal_turistico_user:QEX58wGwvEukhK7FaYHfhIalGdrcdxJh@dpg-cup80l2j1k6c739gors0-a.oregon-postgres.render.com/billares_el_portal_turistico"
 
 def obtener_ip_local():
-    """Devuelve la IP local de la máquina actual (para acceso desde otros dispositivos en red)."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))  # Google DNS como destino dummy
-        ip_local = s.getsockname()[0]
-        s.close()
-        print(f"🌐 IP local detectada: {ip_local}")
-        return ip_local
-    except Exception as e:
-        print(f"⚠ No se pudo obtener la IP local: {e}")
-        return "localhost"
+    # ⚠ Esta IP es fija: corresponde a tu PC local con los videos
+    ip_local_fija = "192.168.1.3"
+    print(f"🌐 IP local forzada: {ip_local_fija}")
+    return ip_local_fija
 
 
 def buscar_videos_por_factura(factura_no):
     print(f"🔍 Buscando videos para factura: {factura_no}")
+    
     if not os.path.exists(RUTA_VIDEOS):
         print(f"❌ Carpeta de videos no encontrada: {RUTA_VIDEOS}")
         return []
@@ -49,9 +43,12 @@ def buscar_videos_por_factura(factura_no):
     puerto = 8800
     videos_encontrados = []
 
+    # 🧠 Patrón exacto para asegurar que busque "factura_F3005", no cualquier F3005
+    patron_factura = re.compile(rf'_factura_{re.escape(factura_no)}_', re.IGNORECASE)
+
     for archivo in os.listdir(RUTA_VIDEOS):
         print(f"📦 Evaluando archivo: {archivo}")
-        if factura_no.lower() in archivo.lower() and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
+        if patron_factura.search(archivo) and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
             match = re.search(r'_(\d{8}_\d{6})', archivo)
             if match:
                 try:
@@ -64,9 +61,11 @@ def buscar_videos_por_factura(factura_no):
             else:
                 print(f"⚠ No se encontró timestamp válido en: {archivo}")
 
+    # Ordenar cronológicamente
     videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
     print(f"🎬 Total videos encontrados: {len(videos_ordenados)}")
     return videos_ordenados
+
 
 def connect_db():
     """Establece la conexión con la base de datos PostgreSQL en Render."""
