@@ -34,29 +34,12 @@ def obtener_ip_local():
 
 def buscar_videos_por_factura(factura_no):
     print(f"🔍 Buscando videos para factura: {factura_no}")
-
-    try:
-        ip_local = "192.168.1.3"  # 👈 La IP local de tu PC que sirve los videos
-        puerto = 8800
-        videos_url_base = f"http://{ip_local}:{puerto}"
-        json_url = f"{videos_url_base}/listado_videos.json"
-
-        import urllib.request
-        import json
-
-        # 🔄 Descargar el JSON desde el servidor local
-        with urllib.request.urlopen(json_url) as response:
-            contenido_json = response.read().decode("utf-8")
-            listado = json.loads(contenido_json)
-
-        # 🔍 Buscar videos para la factura solicitada
-        videos_encontrados = listado.get(factura_no, [])
-        print(f"🎬 Total videos encontrados: {len(videos_encontrados)}")
-        return videos_encontrados
-
-    except Exception as e:
-        print(f"⚠ Error accediendo al JSON de videos desde red local: {e}")
-        return []
+    
+    ip_local = "192.168.1.3"  # Puedes ajustar esto si cambia tu IP
+    puerto = 8800
+    json_url = f"http://{ip_local}:{puerto}/listado_videos.json"
+    
+    return json_url  # Solo retornamos la URL para que la plantilla HTML lo consulte desde el navegador
 
 
 
