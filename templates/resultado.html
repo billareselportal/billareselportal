@@ -301,23 +301,31 @@
         let currentIndex = 0;
         const videoPlayer = document.getElementById('videoPlayer');
 
-        const factura = "{{ datos_venta[0] if datos_venta else '' }}";
+        const factura = "{{ datos_venta[0] }}";
         const localDesdeFlask = {{ 'true' if local else 'false' }};
-        const esLocalBrowser = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
 
         console.log("🧾 Factura:", factura);
-        console.log("🌐 esLocalBrowser:", esLocalBrowser);
         console.log("🔁 localDesdeFlask:", localDesdeFlask);
 
-        document.addEventListener("DOMContentLoaded", () => {
+        document.addEventListener("DOMContentLoaded", async () => {
             const localIp = "192.168.1.3";
             const localPort = "5001";
+            const pingURL = `http://${localIp}:${localPort}/ping`;
 
             console.log("📥 DOM cargado correctamente.");
 
-            // 1. Si estás en red local (Flask lo detectó) pero el navegador aún está en Render, redirige
-            if (factura && localDesdeFlask && !esLocalBrowser) {
-                console.warn("📡 Red local detectada desde Flask, pero navegador no está en local. Redirigiendo...");
+            let esRedLocal = false;
+
+            try {
+                const response = await fetch(pingURL, { method: "GET", mode: "no-cors" });
+                console.log("📶 Se respondió desde /ping local.");
+                esRedLocal = true;
+            } catch (error) {
+                console.warn("🌐 No se pudo conectar con el servidor local:", error);
+            }
+
+            if (factura && !localDesdeFlask && esRedLocal) {
+                console.log("📡 Red local detectada. Redirigiendo a servidor Flask local...");
 
                 const form = document.createElement('form');
                 form.method = 'POST';
@@ -334,8 +342,8 @@
                 return;
             }
 
-            // 2. Si el navegador está accediendo directamente en red local, cargar videos
-            if (factura && esLocalBrowser) {
+            // Ya estamos en red local y accediendo desde el Flask local
+            if (factura && localDesdeFlask) {
                 console.log("🎬 Cargando videos desde JSON local para factura:", factura);
                 cargarVideosDesdeJson(factura);
             } else {
@@ -407,6 +415,7 @@
             videoPlayer.style.transform = "scale(1)";
         }
     </script>
+
 
 
 </body>
