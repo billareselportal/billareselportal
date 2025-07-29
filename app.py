@@ -63,7 +63,9 @@ def consulta():
     else:
         return jsonify({'success': False, 'message': f'No se encontró una factura para el código {codigo}.'})
 
-import socket
+@app.route('/ping')
+def ping():
+    return "pong", 200
 
 @app.route('/resultado', methods=['POST'])
 def resultado():

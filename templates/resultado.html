@@ -301,27 +301,42 @@
         const videoPlayer = document.getElementById('videoPlayer');
 
         const factura = "{{ datos_venta[0] }}";
-        const localDesdeFlask = {{ 'true' if local else 'false' }};  // Variable pasada por el backend
-
-        // Detectar si estamos accediendo desde la red local en el navegador
+        const localDesdeFlask = {{ 'true' if local else 'false' }};  // Desde el backend Flask
         const esLocalBrowser = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
 
-        // 🔄 Redirigir automáticamente al servidor local si aplica
-        if (factura && localDesdeFlask && !esLocalBrowser) {
-            console.log("📡 Red local detectada, redireccionando al servidor Flask local...");
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = 'http://192.168.1.3:5001/resultado';
+        document.addEventListener("DOMContentLoaded", () => {
+            const localIp = "192.168.1.3";
+            const localPort = "5001";
 
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'codigo';
-            input.value = factura;
+            // Intentar detectar si el servidor local está activo
+            fetch(`http://${localIp}:${localPort}/ping`)
+                .then(res => {
+                    if (res.ok && localDesdeFlask && !esLocalBrowser) {
+                        console.log("📡 Red local detectada, redireccionando al servidor Flask local...");
 
-            form.appendChild(input);
-            document.body.appendChild(form);
-            form.submit();
-        }
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = `http://${localIp}:${localPort}/resultado`;
+
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'codigo';
+                        input.value = factura;
+
+                        form.appendChild(input);
+                        document.body.appendChild(form);
+                        form.submit();
+                    }
+                })
+                .catch(() => {
+                    console.log("⚠ No se detectó el servidor Flask local, se quedará en Render.");
+                });
+
+            // Si ya estamos en local, cargamos los videos
+            if (factura && esLocalBrowser) {
+                cargarVideosDesdeJson(factura);
+            }
+        });
 
         async function cargarVideosDesdeJson(factura_no) {
             const ipLocal = '192.168.1.3';
@@ -376,15 +391,30 @@
         function zoomOut() {
             videoPlayer.style.transform = "scale(1)";
         }
-
-        document.addEventListener("DOMContentLoaded", () => {
-            // Solo cargar JSON si ya estás en local (no redirigido aún)
-            if (factura && esLocalBrowser) {
-                cargarVideosDesdeJson(factura);
-            }
-        });
     </script>
 
+
+    <script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const localIp = "192.168.1.3";
+        const localPort = "5001";
+
+        // Detecta si el usuario está en la red local
+        const estaEnRedLocal = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
+
+        // Si no está en la red local pero su navegador sí está en una red local, redirige
+        fetch(`http://${localIp}:${localPort}/ping`)
+            .then(res => {
+                if (res.ok && !estaEnRedLocal) {
+                    const factura = "{{ datos_venta[0] }}";
+                    window.location.href = `http://${localIp}:${localPort}/resultado?codigo=${factura}`;
+                }
+            })
+            .catch(() => {
+                console.log("No se detectó servidor local disponible.");
+            });
+    });
+    </script>
 
 
 
