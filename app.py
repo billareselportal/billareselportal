@@ -10,6 +10,7 @@ import smtplib
 from email.mime.text import MIMEText
 import os
 import socket
+import requests
 
 # Ruta absoluta a la carpeta actual donde está app.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,13 +34,87 @@ def obtener_ip_local():
 
 
 def buscar_videos_por_factura(factura_no):
-    print(f"🔍 Buscando videos para factura: {factura_no}")
-    
-    ip_local = "192.168.1.3"  # Puedes ajustar esto si cambia tu IP
-    puerto = 8800
-    json_url = f"http://{ip_local}:{puerto}/listado_videos.json"
-    
-    return json_url  # Solo retornamos la URL para que la plantilla HTML lo consulte desde el navegador
+    print(f"🔍 Buscando videos en Google Drive para factura: {factura_no}")
+
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+
+    try:
+        # 🔐 Credenciales embebidas directamente
+        info_credenciales = {
+            "type": "service_account",
+            "project_id": "licencias-448407",
+            "private_key_id": "76734927f48ca282080c2374e09d59880967bd9a",
+            "private_key": """-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC+QIXX+VKkx1hF
+F5qyjO2sMp7a19h5EfA7PGC54La+iMvieco3ScIoKvgqNC44HnJDIenEBy8wJN8h
+xl+rN+xPEG2Yt0nJtnL4lkMDNtWdPw8KgtRF7BOJv069zf9z6WEA7lqRNYPyV930
+U4aFuuq0wJUJqYbGqNntA4ws96t9q3BmPcGchmj6rqhxnxFYtBcnr8mSgp/uClPs
+LG1DlLjbL78PT0F5J1kOzVsmRwz0yks5JQOrKTEtvItH0XoElXYjUE8dBHxVqhlh
+HKCEJ6DUpwTfwlS6WvKtFQpe9zcH28Dl7uj0sXGGqKctFFvuqdFGWOmnBQp8Fvzh
+Bw9W/HFFAgMBAAECggEAIj9wOJw3rdT6xVlF7k1jPYPRR9jiLY02nxsz2FIk43Cx
+rx+4cLJ04pE1ojdJeK22aPJSaAjZDEQe7LAOqb5D6kmtSPf5rveKg8hc4Ne+pXNk
+DELX3oxsSfgnvxA1o5KH9UhzAj/NdFMv79sXVLx8orQmQBqF2f4sWLeyRKgC9XiW
+nMFCTQ52ZptsYeXeBZQR8kARaOoRd6luvCnxgALxtEaCAOgKLY7eHLm/Mmxn3Lfj
+xc4IHW4VXfcAVBnBKuXHYgU7fnURds3JPmxYapA4iIfrQVa5sXZ0ek13RnUjcppe
+0I+DwObHFuJiYx0f3AW3sXeosZFP4N8112f1TFk3IwKBgQD4Y1FzZrtyobADRa4g
+Az2IqYRFOkE9lrGhng1lt8He6fkVOQkhpdy4RsRwURuz/7s0dKlSN0hpUQzoY1UI
+qA/KV8YQROA+L5EcdjmQH4SCTBL1h5NRY86W6CIOL+RBJbD/XApm3b38guWDN9Lu
+SgbdjWyub2gyrJufb577r7R4TwKBgQDEFRwsZTurpULvDTADmyNkh6cBY3l63hS2
+09GidcGmWM1qLCjfHYOCdxO26bSn4vTBu9cVGP8F/JkbGEJkC6NtBdKJf1L5cKmd
+Op6xPiOnfAl90mrcDtE76KrzrejayVBtmz69H//AA/rWU/wLcFQD8FBhxbj/0gTQ
+4cKXg8UEKwKBgDrEtPbK7brXip+bkvE8EwkMoqEGgX0i9HA6xwy0B4jIbwiYcBKn
+/asUA1JXvmg+L3rfx1gOgHF6ncU2C1569RF45wHeafgMpRbI2iHBc0ao3St+olp1
+dOG7lqMorabEVjZ0/nkMKfFevxLm2F9M4Ib2+SnkbhDfSgrVDBacoeR9AoGAAjeO
+4v2eCBnNQPCwO0o0wz05aS2bwQTjzRFmDGUydFQKtombSLKHuyDniyjnTwKk68/Y
+5bcrowCxJnpGveTXyzLGp6FV6dYZRNrV0oE2W/1uCgsoBCbyvK+rxyePO3INQ7/+
+nJrRBHXHD0dR0TtK5+R+tCxNJC9WuJnk3luyDZMCgYBTUT2exUupddtvHRlXn5+i
+r7BnI17bIEZVsY8yzAeWdlDSF9jyNWisBl2c+0BOe2mf5AfvfFdJObL9dwLe8Jpd
+yjDjbSzajx+8kFsJU4UM1NFyOejTsdik/VdgtzJWKDNTPO4lpfGURCk8hj2ZLVg+
+BRB/oM+tv+w+4HqQHGWB2w==
+-----END PRIVATE KEY-----""",
+            "client_email": "mi-cuenta-licencias@licencias-448407.iam.gserviceaccount.com",
+            "client_id": "114425087077358652371",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/mi-cuenta-licencias%40licencias-448407.iam.gserviceaccount.com",
+            "universe_domain": "googleapis.com"
+        }
+
+        SCOPES = ['https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(info_credenciales, scopes=SCOPES)
+        servicio = build('drive', 'v3', credentials=creds)
+
+        # 📂 Buscar la carpeta "videos"
+        query_folder = "name = 'videos' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        resultado = servicio.files().list(q=query_folder, fields="files(id)").execute()
+        carpetas = resultado.get("files", [])
+        if not carpetas:
+            print("❌ Carpeta 'videos' no encontrada.")
+            return []
+
+        carpeta_id = carpetas[0]['id']
+
+        # 🔍 Buscar archivos con el número de factura
+        query = (
+            f"name contains '{factura_no}' and "
+            f"'{carpeta_id}' in parents and trashed = false"
+        )
+        resultado = servicio.files().list(q=query, fields="files(id, name)").execute()
+        archivos = resultado.get("files", [])
+
+        urls = [
+            f"https://drive.google.com/uc?export=download&id={archivo['id']}"
+            for archivo in archivos
+        ]
+
+        print(f"🎬 {len(urls)} videos encontrados para factura {factura_no}")
+        return urls
+
+    except Exception as e:
+        print(f"❌ Error accediendo a Google Drive: {e}")
+        return []
 
 
 
