@@ -36,7 +36,7 @@ def buscar_videos_por_factura(factura_no):
     print(f"🔍 Buscando videos para factura: {factura_no}")
 
     try:
-        ip_local = obtener_ip_local()
+        ip_local = "192.168.1.3"  # 👈 La IP local de tu PC que sirve los videos
         puerto = 8800
         videos_url_base = f"http://{ip_local}:{puerto}"
         json_url = f"{videos_url_base}/listado_videos.json"
