@@ -202,6 +202,7 @@
         {% if mensaje %}
             <p class="mensaje">{{ mensaje }}</p>
         {% else %}
+            <!-- Datos de factura -->
             <div class="data-container">
                 <p><span class="highlight">Factura No:</span> {{ datos_venta[0] }}</p>
                 <p><span class="highlight">Cliente:</span> {{ datos_venta[1] }}</p>
@@ -210,6 +211,7 @@
                 <p><span class="highlight">Concepto:</span> {{ datos_venta[12] }}</p>
             </div>
 
+            <!-- Totales -->
             <div class="totals-section">
                 <div class="total-box">
                     <span class="label">Total</span>
@@ -221,6 +223,7 @@
                 </div>
             </div>
 
+            <!-- Productos -->
             <div class="table-section">
                 <h3>Detalle de Productos</h3>
                 <div class="table-wrapper">
@@ -243,9 +246,9 @@
                                 <td>${{ "{:,.0f}".format(item[2]).replace(",", ".") }}</td>
                                 <td>
                                     {% if item[3] and item[3] != "" %}
-                                        {{ item[3] }}  <!-- Muestra el método de pago si existe -->
+                                        {{ item[3] }}
                                     {% else %}
-                                        Pendiente  <!-- Si está vacío o es None, muestra "Pendiente" -->
+                                        Pendiente
                                     {% endif %}
                                 </td>
                             </tr>
@@ -254,6 +257,8 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Pagos -->
             <div class="pagos-section">
                 <h3>Pagos Recibidos</h3>
                 <ul>
@@ -264,84 +269,61 @@
                 </ul>
             </div>
 
+            <!-- 🔁 Reproductor de Videos -->
+            {% if lista_videos %}
+                <div class="video-section" style="margin-top: 30px;">
+                    <h3 style="text-align: center; color: #ffcc00;">Videos de la partida</h3>
 
-    {% if lista_videos %}
-        <div class="video-section" style="margin-top: 30px;">
-            <h3 style="text-align: center; color: #ffcc00;">Videos de la partida</h3>
+                    <iframe id="videoFrame" width="100%" height="300" frameborder="0" allow="autoplay" allowfullscreen style="border-radius: 8px;"></iframe>
 
-            <video id="videoPlayer" width="100%" controls style="max-height: 300px; border-radius: 8px;">
-                Tu navegador no soporta video HTML5.
-            </video>
+                    <div style="margin-top: 10px; text-align: center;">
+                        <button onclick="prevVideo()">⏮️ Anterior</button>
+                        <button onclick="nextVideo()">⏭️ Siguiente</button>
+                        <button onclick="location.reload()">🔄 Recargar</button>
+                    </div>
+                </div>
 
-            <div style="margin-top: 10px; text-align: center;">
-                <button onclick="prevVideo()">⏮️ Anterior</button>
-                <button onclick="nextVideo()">⏭️ Siguiente</button>
-                <button onclick="zoomIn()">🔍 Zoom +</button>
-                <button onclick="zoomOut()">🔎 Zoom -</button>
-                <label for="speed">⏩ Velocidad:</label>
-                <select id="speed" onchange="setSpeed(this.value)">
-                    <option value="0.5">0.5x</option>
-                    <option value="1" selected>1x</option>
-                    <option value="1.5">1.5x</option>
-                    <option value="2">2x</option>
-                </select>
-                <button onclick="location.reload()">🔄 Recargar</button>
-            </div>
-        </div>
+                <script>
+                    const videos = {{ lista_videos | tojson }};
+                    let currentIndex = 0;
+                    const videoFrame = document.getElementById('videoFrame');
 
-        <script>
-            const videos = {{ lista_videos | tojson }};
-            let currentIndex = 0;
-            const videoPlayer = document.getElementById('videoPlayer');
+                    function getPreviewLink(driveUrl) {
+                        const match = driveUrl.match(/id=([^&]+)/);
+                        return match ? `https://drive.google.com/file/d/${match[1]}/preview` : "";
+                    }
 
-            function loadVideo() {
-                if (!videoPlayer || videos.length === 0) return;
-                videoPlayer.src = videos[currentIndex];
-                videoPlayer.play();
-            }
+                    function loadVideo() {
+                        if (!videoFrame || videos.length === 0) return;
+                        videoFrame.src = getPreviewLink(videos[currentIndex]);
+                    }
 
-            function nextVideo() {
-                if (currentIndex < videos.length - 1) {
-                    currentIndex++;
-                    loadVideo();
-                }
-            }
+                    function nextVideo() {
+                        if (currentIndex < videos.length - 1) {
+                            currentIndex++;
+                            loadVideo();
+                        }
+                    }
 
-            function prevVideo() {
-                if (currentIndex > 0) {
-                    currentIndex--;
-                    loadVideo();
-                }
-            }
+                    function prevVideo() {
+                        if (currentIndex > 0) {
+                            currentIndex--;
+                            loadVideo();
+                        }
+                    }
 
-            function setSpeed(speed) {
-                videoPlayer.playbackRate = parseFloat(speed);
-            }
-
-            function zoomIn() {
-                videoPlayer.style.transform = "scale(1.5)";
-                videoPlayer.style.transformOrigin = "center";
-            }
-
-            function zoomOut() {
-                videoPlayer.style.transform = "scale(1)";
-            }
-
-            // ✅ Cargar primer video automáticamente
-            document.addEventListener("DOMContentLoaded", () => {
-                if (videos.length > 0) {
-                    loadVideo();
-                } else {
-                    document.querySelector('.video-section').innerHTML =
-                        "<p style='color:red;text-align:center;'>No hay videos disponibles para esta factura.</p>";
-                }
-            });
-        </script>
-    {% endif %}
-
-    <a class="back-button" href="/">Volver</a>
-{% endif %} {# ← este cierra el primer if mensaje #}
-</div>
+                    document.addEventListener("DOMContentLoaded", () => {
+                        if (videos.length > 0) {
+                            loadVideo();
+                        } else {
+                            document.querySelector('.video-section').innerHTML =
+                                "<p style='color:red;text-align:center;'>No hay videos disponibles para esta factura.</p>";
+                        }
+                    });
+                </script>
+            {% endif %}
+        {% endif %}
+    </div>
 </div>
 
 </body>
