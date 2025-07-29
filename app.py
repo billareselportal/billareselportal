@@ -34,37 +34,33 @@ def obtener_ip_local():
 
 def buscar_videos_por_factura(factura_no):
     print(f"🔍 Buscando videos para factura: {factura_no}")
-    
-    if not os.path.exists(RUTA_VIDEOS):
-        print(f"❌ Carpeta de videos no encontrada: {RUTA_VIDEOS}")
+
+    try:
+        ip_local = obtener_ip_local()
+        puerto = 8800
+        videos_url_base = f"http://{ip_local}:{puerto}"
+
+        # ✅ Acceder al listado directamente desde el servidor de tu PC
+        # Asumimos que estás sirviendo con SimpleHTTPServer
+        # Ejemplo de archivos ya accesibles: http://192.168.1.3:8800/
+
+        videos_encontrados = []
+        for archivo in os.listdir("/videos"):  # 👈 esta parte solo se ejecutará si estás local
+            if factura_no.lower() in archivo.lower() and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
+                match = re.search(r'_(\d{8}_\d{6})', archivo)
+                if match:
+                    fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
+                    url_video = f"{videos_url_base}/{archivo}"
+                    videos_encontrados.append((fecha_hora, url_video))
+
+        videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
+        print(f"🎬 Total videos encontrados: {len(videos_ordenados)}")
+        return videos_ordenados
+
+    except Exception as e:
+        print(f"⚠ Error accediendo a videos desde red local: {e}")
         return []
 
-    ip_local = obtener_ip_local()
-    puerto = 8800
-    videos_encontrados = []
-
-    # 🧠 Patrón exacto para asegurar que busque "factura_F3005", no cualquier F3005
-    patron_factura = re.compile(rf'_factura_{re.escape(factura_no)}_', re.IGNORECASE)
-
-    for archivo in os.listdir(RUTA_VIDEOS):
-        print(f"📦 Evaluando archivo: {archivo}")
-        if patron_factura.search(archivo) and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
-            match = re.search(r'_(\d{8}_\d{6})', archivo)
-            if match:
-                try:
-                    fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
-                    url_video = f"http://{ip_local}:{puerto}/{archivo}"
-                    videos_encontrados.append((fecha_hora, url_video))
-                    print(f"✅ Video agregado: {url_video}")
-                except Exception as e:
-                    print(f"⚠ Error procesando fecha del archivo {archivo}: {e}")
-            else:
-                print(f"⚠ No se encontró timestamp válido en: {archivo}")
-
-    # Ordenar cronológicamente
-    videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
-    print(f"🎬 Total videos encontrados: {len(videos_ordenados)}")
-    return videos_ordenados
 
 
 def connect_db():
