@@ -84,100 +84,76 @@ def consulta():
     else:
         return jsonify({'success': False, 'message': f'No se encontró una factura para el código {codigo}.'})
 
+import socket
+
 @app.route('/resultado', methods=['POST'])
 def resultado():
-    codigo = request.form.get('codigo')  # Código ingresado en el formulario
+    codigo = request.form.get('codigo')
     if not codigo:
         return render_template('resultado.html', mensaje="Debe ingresar un código.",
-                       datos_venta=[], detalle_eventos=[], lista_videos=[])
+                               datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
-    conn = connect_db()  # Asegurar que se llama correctamente la función
+    conn = connect_db()
     if not conn:
-        return render_template('resultado.html', mensaje="Error de conexión a la base de datos.")
+        return render_template('resultado.html', mensaje="Error de conexión a la base de datos.",
+                               datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
     cursor = conn.cursor()
-
-    # 🔎 Buscar el `factura_no` en la tabla `mesas`
-    print(f"🟡 Buscando factura asociada al código {codigo}...")
     cursor.execute("SELECT factura_no FROM mesas WHERE codigo = %s;", (codigo,))
     factura_result = cursor.fetchone()
 
     if not factura_result:
-        print(f"❌ No se encontró la factura para el código {codigo}")
         conn.close()
-        return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.", lista_videos=[])
+        return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.",
+                               datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
     factura_no = factura_result[0]
-    print(f"✅ Factura encontrada para código {codigo}: {factura_no}")
     lista_videos = buscar_videos_por_factura(factura_no)
-    print(f"🎬 Videos encontrados: {lista_videos}")
 
     try:
-        # 🔎 Buscar en `ventas` usando `factura_no`
-        cursor.execute("""
-            SELECT factura_no, nombre, estado, 
-                   CAST(total AS FLOAT), CAST(saldo AS FLOAT), 
-                   CAST(caja AS FLOAT), CAST(nequi AS FLOAT), CAST(bancolombia AS FLOAT), 
-                   CAST(datafono AS FLOAT), CAST(julian AS FLOAT), CAST(fiado AS FLOAT), 
-                   fecha, concepto
-            FROM ventas
-            WHERE factura_no = %s""", (factura_no,))
+        cursor.execute("""SELECT factura_no, nombre, estado, 
+                          CAST(total AS FLOAT), CAST(saldo AS FLOAT), 
+                          CAST(caja AS FLOAT), CAST(nequi AS FLOAT), CAST(bancolombia AS FLOAT), 
+                          CAST(datafono AS FLOAT), CAST(julian AS FLOAT), CAST(fiado AS FLOAT), 
+                          fecha, concepto
+                          FROM ventas WHERE factura_no = %s""", (factura_no,))
         venta_result = cursor.fetchone()
 
-        # ✅ Imprimir los valores obtenidos
-        print(f"✅ Datos de ventas encontrados: {venta_result}")
-
         if not venta_result:
-            print(f"❌ No hay información de ventas para la factura {factura_no}")
             conn.close()
-            return render_template('resultado.html', mensaje=f"No hay información de ventas para la factura {factura_no}.")
+            return render_template('resultado.html', mensaje=f"No hay información de ventas para la factura {factura_no}.",
+                                   datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
-        # Desempaquetar valores asegurando que son del tipo correcto
-        factura, nombre, estado, total, saldo, caja, nequi, bancolombia, datafono, julian, fiado, fecha, concepto = venta_result
-
-        # 🔎 Buscar en `eventos_inventario` los productos asociados a la factura
-        cursor.execute("""
-            SELECT producto, 
-                   CAST(salidas AS FLOAT), 
-                   CAST(costo AS FLOAT), 
-                   metodo
-            FROM eventos_inventario
-            WHERE factura_no = %s""", (factura_no,))
+        eventos = cursor.execute("""SELECT producto, CAST(salidas AS FLOAT), CAST(costo AS FLOAT), metodo
+                                    FROM eventos_inventario WHERE factura_no = %s""", (factura_no,))
         eventos = cursor.fetchall()
-
-        # ✅ Imprimir los productos sin modificar
-        print(f"📦 Productos en la factura (antes de conversión): {eventos}")
-
-        # 🔥 Convertir `None` en valores seguros y evitar errores en la plantilla HTML
         eventos_convertidos = [
             (producto, float(salidas) if salidas is not None else 0.0,
-             float(costo) if costo is not None else 0.0, 
-             metodo if metodo is not None else "pendiente") 
+             float(costo) if costo is not None else 0.0,
+             metodo if metodo is not None else "pendiente")
             for producto, salidas, costo, metodo in eventos
         ]
 
-        # ✅ Imprimir los productos después de la conversión
-        print(f"📦 Productos en la factura (después de conversión): {eventos_convertidos}")
-
         conn.close()
+
+        # Detectar si estamos en la red local
+        es_local = socket.gethostbyname(socket.gethostname()).startswith("192.168.")
 
         return render_template(
             'resultado.html',
-            datos_venta=[factura, nombre, estado, total, saldo, caja, nequi, bancolombia, datafono, julian, fiado, fecha, concepto],
+            datos_venta=list(venta_result),
             detalle_eventos=eventos_convertidos,
-            lista_videos=lista_videos  # ✅ Paso clave
+            lista_videos=lista_videos,
+            local=es_local
         )
 
     except Exception as e:
         print(f"❌ Error en la consulta SQL: {e}")
         conn.close()
-        return render_template(
-            'resultado.html',
-            mensaje=f"Error al consultar la factura {factura_no}.",
-            datos_venta=[],  # ← aunque sea vacío
-            detalle_eventos=[],
-            lista_videos=[]
-        )
+        return render_template('resultado.html',
+                               mensaje="Error al consultar la factura.",
+                               datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
+
 
 
 @app.route('/lista_precios')
