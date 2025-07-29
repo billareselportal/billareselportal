@@ -33,27 +33,6 @@ def obtener_ip_local():
     return ip_local_fija
 
 
-def buscar_videos_por_factura(factura_no):
-    print(f"🔍 Buscando videos para factura: {factura_no}")
-    
-    ip_local = "192.168.1.3"
-    puerto = 8800
-    json_url = f"http://{ip_local}:{puerto}/listado_videos.json"
-
-    try:
-        response = requests.get(json_url, timeout=3)
-        response.raise_for_status()
-        data = response.json()
-        print("📂 JSON cargado correctamente.")
-        
-        # Filtrar los videos correspondientes a la factura
-        return data.get(factura_no, [])
-    except Exception as e:
-        print(f"❌ Error cargando el JSON: {e}")
-        return []
-
-
-
 def connect_db():
     """Establece la conexión con la base de datos PostgreSQL en Render."""
     try:
@@ -108,7 +87,6 @@ def resultado():
                                datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
     factura_no = factura_result[0]
-    lista_videos = buscar_videos_por_factura(factura_no)
 
     try:
         cursor.execute("""SELECT factura_no, nombre, estado, 
@@ -143,7 +121,6 @@ def resultado():
             'resultado.html',
             datos_venta=list(venta_result),
             detalle_eventos=eventos_convertidos,
-            lista_videos=lista_videos,
             local=es_local
         )
 
