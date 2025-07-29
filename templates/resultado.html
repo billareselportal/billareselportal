@@ -300,15 +300,32 @@
         let currentIndex = 0;
         const videoPlayer = document.getElementById('videoPlayer');
 
+        const factura = "{{ datos_venta[0] }}";
+        const localDesdeFlask = {{ 'true' if local else 'false' }};  // Variable pasada por el backend
+
+        // Detectar si estamos accediendo desde la red local en el navegador
+        const esLocalBrowser = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
+
+        // 🔄 Redirigir automáticamente al servidor local si aplica
+        if (factura && localDesdeFlask && !esLocalBrowser) {
+            console.log("📡 Red local detectada, redireccionando al servidor Flask local...");
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'http://192.168.1.3:5001/resultado';
+
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'codigo';
+            input.value = factura;
+
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
         async function cargarVideosDesdeJson(factura_no) {
             const ipLocal = '192.168.1.3';
-            const esLocal = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
-            const url = esLocal ? `http://${ipLocal}:8800/listado_videos.json` : null;
-
-            if (!url) {
-                console.warn("⚠ No se puede acceder al JSON desde Render (fuera de red local)");
-                return;
-            }
+            const url = `http://${ipLocal}:8800/listado_videos.json`;
 
             try {
                 const response = await fetch(url);
@@ -361,9 +378,8 @@
         }
 
         document.addEventListener("DOMContentLoaded", () => {
-            const factura = "{{ datos_venta[0] }}";
-            const esLocal = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
-            if (factura && esLocal) {
+            // Solo cargar JSON si ya estás en local (no redirigido aún)
+            if (factura && esLocalBrowser) {
                 cargarVideosDesdeJson(factura);
             }
         });
