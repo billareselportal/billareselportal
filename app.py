@@ -77,7 +77,8 @@ def consulta():
 def resultado():
     codigo = request.form.get('codigo')  # Código ingresado en el formulario
     if not codigo:
-        return render_template('resultado.html', mensaje="Debe ingresar un código.")
+        return render_template('resultado.html', mensaje="Debe ingresar un código.",
+                       datos_venta=[], detalle_eventos=[], lista_videos=[])
 
     conn = connect_db()  # Asegurar que se llama correctamente la función
     if not conn:
@@ -159,7 +160,14 @@ def resultado():
     except Exception as e:
         print(f"❌ Error en la consulta SQL: {e}")
         conn.close()
-        return render_template('resultado.html', mensaje=f"Error al consultar la factura {factura_no}.")
+        return render_template(
+            'resultado.html',
+            mensaje=f"Error al consultar la factura {factura_no}.",
+            datos_venta=[],  # ← aunque sea vacío
+            detalle_eventos=[],
+            lista_videos=[]
+        )
+
 
 @app.route('/lista_precios')
 def lista_precios():
