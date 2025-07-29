@@ -295,8 +295,6 @@
     </div>
 </div>
 
-
-
     <script>
         let videos = [];
         let currentIndex = 0;
@@ -304,9 +302,15 @@
 
         async function cargarVideosDesdeJson(factura_no) {
             const esLocal = {{ 'true' if local else 'false' }};
-            const ipLocal = '192.168.1.3';
-            const url = esLocal ? `http://${ipLocal}:8800/listado_videos.json` : null;
+            const ipLocal = '192.168.1.3'; // Servidor local que corre JSON
+            const url = esLocal
+                ? `http://${ipLocal}:8800/listado_videos.json`
+                : null; // <-- muy importante para evitar errores
 
+            if (!url) {
+                console.warn("⚠ No se puede acceder al JSON desde Render (fuera de red local)");
+                return;
+            }
 
             try {
                 const response = await fetch(url);
@@ -317,7 +321,8 @@
                     currentIndex = 0;
                     loadVideo();
                 } else {
-                    document.querySelector('.video-section').innerHTML = "<p style='color:red;text-align:center;'>No hay videos disponibles para esta factura.</p>";
+                    document.querySelector('.video-section').innerHTML =
+                        "<p style='color:red;text-align:center;'>No hay videos disponibles para esta factura.</p>";
                 }
             } catch (error) {
                 console.error("❌ Error cargando el JSON:", error);
@@ -357,18 +362,16 @@
             videoPlayer.style.transform = "scale(1)";
         }
 
-        // 🔁 Actualización automática cada 60 segundos
-        setInterval(() => {
-            const factura = "{{ datos_venta[0] }}";
-            cargarVideosDesdeJson(factura);
-        }, 60000);
-
-        // ✅ Cargar al inicio
+        // Carga inicial si estás en red local
         document.addEventListener("DOMContentLoaded", () => {
             const factura = "{{ datos_venta[0] }}";
-            cargarVideosDesdeJson(factura);
+            const esLocal = {{ 'true' if local else 'false' }};
+            if (factura && esLocal) {
+                cargarVideosDesdeJson(factura);
+            }
         });
     </script>
+
 
 
 </body>
