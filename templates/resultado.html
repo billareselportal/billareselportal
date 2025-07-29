@@ -304,12 +304,18 @@
         const localDesdeFlask = {{ 'true' if local else 'false' }};
         const esLocalBrowser = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
 
+        console.log("🧾 Factura:", factura);
+        console.log("🌐 esLocalBrowser:", esLocalBrowser);
+        console.log("🔁 localDesdeFlask:", localDesdeFlask);
+
         document.addEventListener("DOMContentLoaded", () => {
             const localIp = "192.168.1.3";
             const localPort = "5001";
 
+            console.log("📥 DOM cargado correctamente.");
+
             if (factura && localDesdeFlask && !esLocalBrowser) {
-                console.log("📡 Red local detectada, redireccionando al servidor Flask local...");
+                console.log("📡 Red local detectada pero el navegador NO está en local. Redirigiendo al servidor Flask local...");
 
                 const form = document.createElement('form');
                 form.method = 'POST';
@@ -323,11 +329,15 @@
                 form.appendChild(input);
                 document.body.appendChild(form);
                 form.submit();
+                return;  // Evita que siga al bloque de carga de videos
             }
 
-            // Si ya estás en local, cargar JSON directamente
+            // Si ya estás en red local con el navegador, intenta cargar los videos
             if (factura && esLocalBrowser) {
+                console.log("🎬 Cargando videos desde JSON local para factura:", factura);
                 cargarVideosDesdeJson(factura);
+            } else {
+                console.warn("⚠ No se cumplen condiciones para cargar videos (¿estás en red local?)");
             }
         });
 
@@ -335,11 +345,17 @@
             const ipLocal = '192.168.1.3';
             const url = `http://${ipLocal}:8800/listado_videos.json`;
 
+            console.log("🌐 Solicitando JSON desde:", url);
+
             try {
                 const response = await fetch(url);
                 const data = await response.json();
 
+                console.log("📁 JSON cargado:", data);
+
                 videos = data[factura_no] || [];
+                console.log("🎞 Videos encontrados para factura", factura_no, ":", videos);
+
                 if (videos.length > 0) {
                     currentIndex = 0;
                     loadVideo();
@@ -353,7 +369,11 @@
         }
 
         function loadVideo() {
-            if (!videoPlayer || videos.length === 0) return;
+            if (!videoPlayer || videos.length === 0) {
+                console.warn("⚠ No hay video para cargar.");
+                return;
+            }
+            console.log("▶ Cargando video:", videos[currentIndex]);
             videoPlayer.src = videos[currentIndex];
             videoPlayer.play();
         }
@@ -385,7 +405,6 @@
             videoPlayer.style.transform = "scale(1)";
         }
     </script>
-
 
 
 

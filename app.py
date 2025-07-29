@@ -67,30 +67,36 @@ def consulta():
 def ping():
     return "pong", 200
 
+
 @app.route('/resultado', methods=['POST'])
 def resultado():
     codigo = request.form.get('codigo')
     if not codigo:
-        return render_template('resultado.html', mensaje="Debe ingresar un código.",
+        return render_template('resultado.html',
+                               mensaje="Debe ingresar un código.",
                                datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
     conn = connect_db()
     if not conn:
-        return render_template('resultado.html', mensaje="Error de conexión a la base de datos.",
+        return render_template('resultado.html',
+                               mensaje="Error de conexión a la base de datos.",
                                datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
     cursor = conn.cursor()
-    cursor.execute("SELECT factura_no FROM mesas WHERE codigo = %s;", (codigo,))
-    factura_result = cursor.fetchone()
-
-    if not factura_result:
-        conn.close()
-        return render_template('resultado.html', mensaje=f"No se encontró la factura para el código {codigo}.",
-                               datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
-
-    factura_no = factura_result[0]
 
     try:
+        # Buscar factura
+        cursor.execute("SELECT factura_no FROM mesas WHERE codigo = %s;", (codigo,))
+        factura_result = cursor.fetchone()
+
+        if not factura_result:
+            return render_template('resultado.html',
+                                   mensaje=f"No se encontró la factura para el código {codigo}.",
+                                   datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
+
+        factura_no = factura_result[0]
+
+        # Consultar datos de venta
         cursor.execute("""SELECT factura_no, nombre, estado, 
                           CAST(total AS FLOAT), CAST(saldo AS FLOAT), 
                           CAST(caja AS FLOAT), CAST(nequi AS FLOAT), CAST(bancolombia AS FLOAT), 
@@ -100,12 +106,13 @@ def resultado():
         venta_result = cursor.fetchone()
 
         if not venta_result:
-            conn.close()
-            return render_template('resultado.html', mensaje=f"No hay información de ventas para la factura {factura_no}.",
+            return render_template('resultado.html',
+                                   mensaje=f"No hay información de ventas para la factura {factura_no}.",
                                    datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
 
-        eventos = cursor.execute("""SELECT producto, CAST(salidas AS FLOAT), CAST(costo AS FLOAT), metodo
-                                    FROM eventos_inventario WHERE factura_no = %s""", (factura_no,))
+        # Consultar eventos de productos
+        cursor.execute("""SELECT producto, CAST(salidas AS FLOAT), CAST(costo AS FLOAT), metodo
+                          FROM eventos_inventario WHERE factura_no = %s""", (factura_no,))
         eventos = cursor.fetchall()
         eventos_convertidos = [
             (producto, float(salidas) if salidas is not None else 0.0,
@@ -114,25 +121,24 @@ def resultado():
             for producto, salidas, costo, metodo in eventos
         ]
 
-        conn.close()
-
-        # Detectar si estamos en la red local
+        # Detectar si el servidor está en red local
         es_local = socket.gethostbyname(socket.gethostname()).startswith("192.168.")
 
         return render_template(
             'resultado.html',
             datos_venta=list(venta_result),
             detalle_eventos=eventos_convertidos,
+            lista_videos=[],   # 👈 necesario para evitar errores en la plantilla
             local=es_local
         )
 
     except Exception as e:
         print(f"❌ Error en la consulta SQL: {e}")
-        conn.close()
         return render_template('resultado.html',
                                mensaje="Error al consultar la factura.",
                                datos_venta=[], detalle_eventos=[], lista_videos=[], local=False)
-
+    finally:
+        conn.close()
 
 
 @app.route('/lista_precios')
