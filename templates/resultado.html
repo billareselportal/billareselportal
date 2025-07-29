@@ -300,7 +300,7 @@
         let currentIndex = 0;
         const videoPlayer = document.getElementById('videoPlayer');
 
-        const factura = "{{ datos_venta[0] }}";
+        const factura = "{{ datos_venta[0] if datos_venta else '' }}";
         const localDesdeFlask = {{ 'true' if local else 'false' }};
         const esLocalBrowser = location.hostname.startsWith("192.168.") || location.hostname === "localhost";
 
@@ -314,8 +314,9 @@
 
             console.log("📥 DOM cargado correctamente.");
 
+            // 1. Si estás en red local (Flask lo detectó) pero el navegador aún está en Render, redirige
             if (factura && localDesdeFlask && !esLocalBrowser) {
-                console.log("📡 Red local detectada pero el navegador NO está en local. Redirigiendo al servidor Flask local...");
+                console.warn("📡 Red local detectada desde Flask, pero navegador no está en local. Redirigiendo...");
 
                 const form = document.createElement('form');
                 form.method = 'POST';
@@ -329,10 +330,10 @@
                 form.appendChild(input);
                 document.body.appendChild(form);
                 form.submit();
-                return;  // Evita que siga al bloque de carga de videos
+                return;
             }
 
-            // Si ya estás en red local con el navegador, intenta cargar los videos
+            // 2. Si el navegador está accediendo directamente en red local, cargar videos
             if (factura && esLocalBrowser) {
                 console.log("🎬 Cargando videos desde JSON local para factura:", factura);
                 cargarVideosDesdeJson(factura);
@@ -405,7 +406,6 @@
             videoPlayer.style.transform = "scale(1)";
         }
     </script>
-
 
 
 </body>
