@@ -39,26 +39,23 @@ def buscar_videos_por_factura(factura_no):
         ip_local = obtener_ip_local()
         puerto = 8800
         videos_url_base = f"http://{ip_local}:{puerto}"
+        json_url = f"{videos_url_base}/listado_videos.json"
 
-        # ✅ Acceder al listado directamente desde el servidor de tu PC
-        # Asumimos que estás sirviendo con SimpleHTTPServer
-        # Ejemplo de archivos ya accesibles: http://192.168.1.3:8800/
+        import urllib.request
+        import json
 
-        videos_encontrados = []
-        for archivo in os.listdir("/videos"):  # 👈 esta parte solo se ejecutará si estás local
-            if factura_no.lower() in archivo.lower() and archivo.lower().endswith((".mp4", ".webm", ".avi", ".mov")):
-                match = re.search(r'_(\d{8}_\d{6})', archivo)
-                if match:
-                    fecha_hora = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
-                    url_video = f"{videos_url_base}/{archivo}"
-                    videos_encontrados.append((fecha_hora, url_video))
+        # 🔄 Descargar el JSON desde el servidor local
+        with urllib.request.urlopen(json_url) as response:
+            contenido_json = response.read().decode("utf-8")
+            listado = json.loads(contenido_json)
 
-        videos_ordenados = [url for fecha, url in sorted(videos_encontrados)]
-        print(f"🎬 Total videos encontrados: {len(videos_ordenados)}")
-        return videos_ordenados
+        # 🔍 Buscar videos para la factura solicitada
+        videos_encontrados = listado.get(factura_no, [])
+        print(f"🎬 Total videos encontrados: {len(videos_encontrados)}")
+        return videos_encontrados
 
     except Exception as e:
-        print(f"⚠ Error accediendo a videos desde red local: {e}")
+        print(f"⚠ Error accediendo al JSON de videos desde red local: {e}")
         return []
 
 
